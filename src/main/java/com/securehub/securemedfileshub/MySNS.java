@@ -77,12 +77,12 @@ public class MySNS {
                     byte[] encryptedAesKey = rsaCipher.doFinal(aesKey.getEncoded());
 
                     // Send the encrypted file
-                    dos.writeUTF(file.getFileName().toString() + ".assinado");
+                    dos.writeUTF(file.getFileName().toString() + ".cifrado");
                     dos.writeInt(encryptedFileBytes.length);
                     dos.write(encryptedFileBytes);
 
                     // Send the encrypted AES key
-                    dos.writeUTF(file.getFileName().toString() + ".assinatura." + args[5]);
+                    dos.writeUTF(file.getFileName().toString() + ".chave_secreta." + args[5]);
                     dos.writeInt(encryptedAesKey.length);
                     dos.write(encryptedAesKey);
                 }
