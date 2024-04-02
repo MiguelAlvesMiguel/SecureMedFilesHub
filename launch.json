@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Launch MySNSClient",
+            "request": "launch",
+            "mainClass": "com.securehub.securemedfileshub.MySNSClient",
+            "projectName": "SecureMedFilesHub",
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

@@ -1,69 +1,89 @@
 package com.securehub.securemedfileshub;
-import java.io.*;
-import java.net.*;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import java.net.Socket;
+import java.io.FileInputStream;
+import java.io.DataOutputStream;
+import java.security.KeyStore;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.security.PublicKey;
+import java.util.Arrays;
 
+import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 public class MySNSClient {
-    private Socket socket;
-    private BufferedReader reader;
-    private PrintWriter writer;
-
-    public MySNSClient(String address, int port) {
-        try {
-            socket = new Socket(address, port);
-            System.out.println("Connected to the server");
-
-            reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            writer = new PrintWriter(socket.getOutputStream(), true);
-
-        } catch (UnknownHostException ex) {
-            System.out.println("Server not found: " + ex.getMessage());
-        } catch (IOException ex) {
-            System.out.println("I/O error: " + ex.getMessage());
-        }
-    }
-
-    public void sendFiles() {
-        if (socket == null || writer == null) {
-            System.out.println("Client is not connected to server");
-            return;
-        }
-        try {
-            // Simulate sending file names to the server
-            writer.println("file1.txt");
-            System.out.println("Client sent file name: file1.txt");
-            writer.println("file2.txt");
-            System.out.println("Client sent file name: file2.txt");
-            writer.println("file3.txt");
-            System.out.println("Client sent file name: file3.txt");
-
-            // Signal that we're done sending files
-            writer.println("bye");
-
-            // Read the server's responses
-            String response;
-            while ((response = reader.readLine()) != null) {
-                System.out.println(response);
-            }
-
-        } catch (IOException ex) {
-            System.out.println("I/O error: " + ex.getMessage());
-        }
-    }
-
-    public void close() {
-        try {
-            if (socket != null) {
-                socket.close();
-            }
-        } catch (IOException ex) {
-            System.out.println("I/O error: " + ex.getMessage());
-        }
-    }
 
     public static void main(String[] args) {
-        System.out.println("Client started");
-        MySNSClient client = new MySNSClient("localhost", 12346);
-        client.sendFiles();
-        client.close();
+        try {
+            if (args.length < 7 || !"-a".equals(args[0]) || !"-m".equals(args[2]) || !"-u".equals(args[4]) || !"-sc".equals(args[6])) {
+                System.err.println("Usage: java MySNSClient -a <serverAddress>:<port> -m <doctorUsername> -u <patientUsername> -sc {<filenames>}+");
+                System.exit(1);
+            }
+            System.out.println("Debugging info:");
+            Path currentRelativePath = Paths.get("");
+            String currentDirectory = currentRelativePath.toAbsolutePath().toString();
+            System.out.println("Current working directory: " + currentDirectory);
+
+            File dir = new File(currentDirectory);
+            File[] filesList = dir.listFiles();
+            System.out.println("Files in the current directory:");
+            for (File file : filesList) {
+                if (file.isFile()) {
+                    System.out.println(file.getName());
+                }
+            }
+            String[] serverInfo = args[1].split(":");
+            String serverAddress = serverInfo[0];
+            int serverPort = Integer.parseInt(serverInfo[1]);
+            //TODO String doctorUsername = args[3];
+            String patientUsername = args[5];
+            String[] filenames = Arrays.copyOfRange(args, 7, args.length);
+            String keystorePath = "doctor.keystore"; // Adjust if your keystore is in a different location
+            char[] keystorePassword = "doctor".toCharArray(); // Use the actual keystore password here
+
+            KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType());
+            try (FileInputStream keystoreFis = new FileInputStream(keystorePath)) {
+                keystore.load(keystoreFis, keystorePassword);
+            }
+
+            PublicKey publicKey = keystore.getCertificate("doctoralias").getPublicKey();
+
+            try (Socket socket = new Socket(serverAddress, serverPort);
+                 DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
+
+                for (String filename : filenames) {
+                    if (!Files.exists(Paths.get(filename))) {
+                        System.err.println("File not found: " + filename);
+                        continue;
+                    }
+
+                    byte[] fileContent = Files.readAllBytes(Paths.get(filename));
+                    SecretKey aesKey = KeyGenerator.getInstance("AES").generateKey();
+                    Cipher aesCipher = Cipher.getInstance("AES");
+                    aesCipher.init(Cipher.ENCRYPT_MODE, aesKey);
+                    byte[] encryptedContent = aesCipher.doFinal(fileContent);
+
+                    Cipher rsaCipher = Cipher.getInstance("RSA");
+                    rsaCipher.init(Cipher.ENCRYPT_MODE, publicKey);
+                    byte[] encryptedAesKey = rsaCipher.doFinal(aesKey.getEncoded());
+
+                    dos.writeUTF(filename + ".cifrado");
+                    dos.writeInt(encryptedContent.length);
+                    dos.write(encryptedContent);
+
+                    dos.writeUTF(filename + ".chave_secreta." + patientUsername);
+                    dos.writeInt(encryptedAesKey.length);
+                    dos.write(encryptedAesKey);
+                }
+                dos.flush();
+                System.out.println("Files and keys have been sent to the server.");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
     }
 }
