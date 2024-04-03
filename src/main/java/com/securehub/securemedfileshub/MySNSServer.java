@@ -13,9 +13,9 @@ public class MySNSServer {
             return;
         }
         int port = Integer.parseInt(args[0]);
-        try (ServerSocket serverSocket = new ServerSocket(port)) {
-            System.out.println("Server listening on port " + port);
+        System.out.println("Server listening on port " + port);
 
+        try (ServerSocket serverSocket = new ServerSocket(port)) {
             while (true) {
                 try (Socket clientSocket = serverSocket.accept()) {
                     System.out.println("Client connected from " + clientSocket.getInetAddress());
@@ -38,12 +38,12 @@ public class MySNSServer {
             switch (command) {
                 case "-sc":
                     // Read additional parameters required for -sc command
-                    String patientUsername = dis.readUTF();
-                    int numberOfFiles = dis.readInt();
-                    handleScCommand(dis, dos, patientUsername, numberOfFiles);
+            
+                    handleScCommand(dis, dos);
                     break;
                 case "-sa":
-                    handleSaCommand(dis, dos);
+              
+                handleSaCommand(dis, dos);
                     break;
                 case "-se":
                     handleSeCommand(dis, dos);
@@ -56,14 +56,20 @@ public class MySNSServer {
                     dos.writeUTF("Error: Unknown command");
                     break;
             }
-        } finally {
+        
+    } catch (Exception e) {
+        System.err.println("Error processing client request: " + e.getMessage());
+        e.printStackTrace();
+    }
+        finally {
             dis.close();
             dos.close();
         }
     }
     
-    private static void handleScCommand(DataInputStream dis, DataOutputStream dos, String patientUsername, int numberOfFiles) throws IOException {        // Read patient username and number of files from the input stream
-        
+    private static void handleScCommand(DataInputStream dis, DataOutputStream dos) throws IOException {        // Read patient username and number of files from the input stream
+        String patientUsername = dis.readUTF();
+        int numberOfFiles = dis.readInt();
     
         Path patientDirectory = Paths.get(patientUsername);
         if (!Files.exists(patientDirectory)) {
@@ -94,9 +100,37 @@ public class MySNSServer {
 
     
 
-    private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) {
-        // Placeholder for handling -sa command
+    private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
+        // Read doctor username and number of files from the input stream
+        String doctorUsername = dis.readUTF();
+        int numberOfFiles = dis.readInt();
+    
+        Path patientDirectory = Paths.get(doctorUsername);
+        if (!Files.exists(patientDirectory)) {
+            Files.createDirectories(patientDirectory);
+        }
+    
+        for (int i = 0; i < numberOfFiles; i++) {
+            String filename = dis.readUTF(); // Read the filename
+            long fileLength = dis.readLong(); // Read the file length
+            byte[] fileContent = new byte[(int)fileLength];
+            dis.readFully(fileContent); // Read the file content
+    
+            Path filePath = patientDirectory.resolve(filename + ".assinado");
+            Files.write(filePath, fileContent); // Save the signed file
+    
+            String signatureFilename = dis.readUTF(); // Read the signature filename
+            long signatureLength = dis.readLong(); // Read the signature length
+            byte[] signatureContent = new byte[(int)signatureLength];
+            dis.readFully(signatureContent); // Read the signature content
+    
+            Path signaturePath = patientDirectory.resolve(signatureFilename + ".assinatura." + doctorUsername);
+            Files.write(signaturePath, signatureContent); // Save the signature
+        }
+    
+        dos.writeUTF("Signed files and signatures have been received and saved successfully.");
     }
+    
 
     private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) {
         // Placeholder for handling -se command
