@@ -112,16 +112,16 @@ public class MySNSServer {
     
         for (int i = 0; i < numberOfFiles; i++) {
             String filename = dis.readUTF(); // Read the filename
-            long fileLength = dis.readLong(); // Read the file length
-            byte[] fileContent = new byte[(int)fileLength];
+            int fileLength = dis.readInt(); // Read the file length
+            byte[] fileContent = new byte[fileLength];
             dis.readFully(fileContent); // Read the file content
     
             Path filePath = patientDirectory.resolve(filename + ".assinado");
             Files.write(filePath, fileContent); // Save the signed file
     
             String signatureFilename = dis.readUTF(); // Read the signature filename
-            long signatureLength = dis.readLong(); // Read the signature length
-            byte[] signatureContent = new byte[(int)signatureLength];
+            int signatureLength = dis.readInt(); // Read the signature length
+            byte[] signatureContent = new byte[signatureLength];
             dis.readFully(signatureContent); // Read the signature content
     
             Path signaturePath = patientDirectory.resolve(signatureFilename + ".assinatura." + doctorUsername);

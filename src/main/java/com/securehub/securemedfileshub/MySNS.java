@@ -55,7 +55,8 @@ public class MySNS {
                         // Encrypt and send file for -sc command
                         SecretKey aesKey = generateAESKey();
                         byte[] encryptedFileBytes = encryptFile(Files.readAllBytes(file), aesKey);
-                        Certificate patientCert = keystore.getCertificate(args[5] + "alias"); // Ensure correct alias
+                        Certificate patientCert = keystore.getCertificate(args[5] + "cert"); // Ensure correct alias
+                        System.out.println(patientCert.getPublicKey());
                         byte[] encryptedAesKey = encryptAESKey(aesKey, patientCert);
                         sendEncryptedFile(dos, file.getFileName().toString(), encryptedFileBytes, args[5], encryptedAesKey);
                     } else if ("-sa".equals(command)) {
