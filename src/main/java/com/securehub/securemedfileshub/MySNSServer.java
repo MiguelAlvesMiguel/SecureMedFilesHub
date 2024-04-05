@@ -38,7 +38,6 @@ public class MySNSServer {
             switch (command) {
                 case "-sc":
                     // Read additional parameters required for -sc command
-            
                     handleScCommand(dis, dos);
                     break;
                 case "-sa":
@@ -67,70 +66,71 @@ public class MySNSServer {
         }
     }
     
-    private static void handleScCommand(DataInputStream dis, DataOutputStream dos) throws IOException {        // Read patient username and number of files from the input stream
-        String patientUsername = dis.readUTF();
-        int numberOfFiles = dis.readInt();
-    
-        Path patientDirectory = Paths.get(patientUsername);
-        if (!Files.exists(patientDirectory)) {
-            Files.createDirectories(patientDirectory);
-        }
-    
-        for (int i = 0; i < numberOfFiles; i++) {
-            String filename = dis.readUTF(); // Read the filename
-            int fileLength = dis.readInt(); // Read the file length
-            byte[] fileContent = new byte[fileLength];
-            dis.readFully(fileContent); // Read the file content
-    
-            Path filePath = patientDirectory.resolve(filename);
-            Files.write(filePath, fileContent); // Save the encrypted file
-    
-            String keyFilename = dis.readUTF(); // Read the key filename
-            int keyLength = dis.readInt(); // Read the key length
-            byte[] keyContent = new byte[keyLength];
-            dis.readFully(keyContent); // Read the key content
-    
-            Path keyPath = patientDirectory.resolve(keyFilename);
-            Files.write(keyPath, keyContent); // Save the encrypted AES key
-        }
-    
-        dos.writeUTF("Files and keys have been received and saved successfully.");
-    }
-    
+// Code snippet for handling -sc command inside processClient method
+private static void handleScCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
+    String patientUsername = dis.readUTF();
+    int numberOfFiles = dis.readInt();
 
-    
+    Path patientDirectory = Paths.get(patientUsername);
+    Files.createDirectories(patientDirectory);
 
-    private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
-        // Read doctor username and number of files from the input stream
-        String doctorUsername = dis.readUTF();
-        int numberOfFiles = dis.readInt();
-    
-        Path patientDirectory = Paths.get(doctorUsername);
-        if (!Files.exists(patientDirectory)) {
-            Files.createDirectories(patientDirectory);
+    for (int i = 0; i < numberOfFiles; i++) {
+        String filename = dis.readUTF();
+        int fileLength = dis.readInt();
+        byte[] fileContent = new byte[fileLength];
+        dis.readFully(fileContent); // Always read the file content
+
+        int keyLength = dis.readInt();
+        byte[] keyContent = new byte[keyLength];
+        dis.readFully(keyContent); // Always read the encrypted AES key
+
+        Path filePath = patientDirectory.resolve(filename + ".cifrado");
+        Path keyPath = patientDirectory.resolve(filename + ".chave_secreta." + patientUsername);
+
+        if (Files.exists(filePath) || Files.exists(keyPath)) {
+            dos.writeUTF("Error: File " + filename + ".cifrado or its key already exists on the server.");
+        } else {
+            Files.write(filePath, fileContent); // Save encrypted file
+            Files.write(keyPath, keyContent); // Save encrypted AES key
+            dos.writeUTF("Success: File " + filename + ".cifrado and its key saved successfully.");
         }
-    
-        for (int i = 0; i < numberOfFiles; i++) {
-            String filename = dis.readUTF(); // Read the filename
-            int fileLength = dis.readInt(); // Read the file length
-            byte[] fileContent = new byte[fileLength];
-            dis.readFully(fileContent); // Read the file content
-    
-            Path filePath = patientDirectory.resolve(filename + ".assinado");
-            Files.write(filePath, fileContent); // Save the signed file
-    
-            String signatureFilename = dis.readUTF(); // Read the signature filename
-            int signatureLength = dis.readInt(); // Read the signature length
-            byte[] signatureContent = new byte[signatureLength];
-            dis.readFully(signatureContent); // Read the signature content
-    
-            Path signaturePath = patientDirectory.resolve(signatureFilename + ".assinatura." + doctorUsername);
-            Files.write(signaturePath, signatureContent); // Save the signature
-        }
-    
-        dos.writeUTF("Signed files and signatures have been received and saved successfully.");
     }
-    
+}
+
+
+// -sa Command
+private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
+    String doctorUsername = dis.readUTF();
+    String patientUsername = dis.readUTF();
+    int numberOfFiles = dis.readInt();
+
+    Path patientDirectory = Paths.get(patientUsername);
+    Files.createDirectories(patientDirectory);
+
+    for (int i = 0; i < numberOfFiles; i++) {
+        String baseFilename = dis.readUTF();
+        int fileLength = dis.readInt();
+        byte[] fileContent = new byte[fileLength];
+        dis.readFully(fileContent); // Read the file content
+
+        int signatureLength = dis.readInt();
+        byte[] signatureContent = new byte[signatureLength];
+        dis.readFully(signatureContent); // Read the signature content
+
+        Path signedFilePath = patientDirectory.resolve(baseFilename + ".assinado");
+        Path signatureFilePath = patientDirectory.resolve(baseFilename + ".assinatura." + doctorUsername);
+
+        if (Files.exists(signedFilePath) || Files.exists(signatureFilePath)) {
+            dos.writeUTF("Error: File " + baseFilename + " or its signature already exists on the server.");
+        } else {
+            Files.write(signedFilePath, fileContent); // Save the signed file
+            Files.write(signatureFilePath, signatureContent); // Save the signature
+            dos.writeUTF("Success: File " + baseFilename + "and its signature saved successfully.");
+        }
+    }
+}
+
+
 
     private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) {
         // Placeholder for handling -se command
