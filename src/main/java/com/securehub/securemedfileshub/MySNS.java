@@ -105,16 +105,19 @@ public class MySNS {
 
                 }
                 dos.flush();
-
-                String serverResponse = dis.readUTF();
+                
+                if (!"-g".equals(command)) 
+                   
+             {   String serverResponse = dis.readUTF();
                 System.out.println("Resposta server dps do loop: " + serverResponse); // Print the server's response
                 System.out.println("Operation complete. " + nOfFilesSent + " files sent, " + nOfFilesAlreadyPresent
-                        + " files were already present.");
+                        + " files were already present.");}
             }
         } catch (Exception e) {
             e.printStackTrace();
             System.exit(1);
         }
+        
     }
 
     // Handle -sc command processing
@@ -197,8 +200,8 @@ public class MySNS {
             }
         }
     
-        String finalMessage = dis.readUTF(); // Expecting "END" message
-        System.out.println("Server response: " + finalMessage);
+     
+
     }
     
     private static void receiveEncryptedFileAndDecrypt(DataInputStream dis, String filename, KeyStore keystore, String patientUsername) throws Exception {
@@ -249,8 +252,36 @@ public class MySNS {
     
     
     private static void receiveSignedFileAndVerify(DataInputStream dis, String filename, KeyStore keystore) throws Exception {
-        // Implementation for receiving signed file, its signature, and handling signature verification logic
+        // Path to save signed files
+        Path clientDirectory = Paths.get("Client");
+    
+        // Receive signed file content
+        int signedFileLength = dis.readInt();
+        byte[] signedFileContent = new byte[signedFileLength];
+        dis.readFully(signedFileContent);
+        System.out.println("Received signed file content for: " + filename);
+    
+        // Receive signature
+        int signatureLength = dis.readInt();
+        byte[] signature = new byte[signatureLength];
+        dis.readFully(signature);
+        System.out.println("Received signature for: " + filename);
+    
+        // Verify signature
+        PublicKey publicKey = getPublicKeyFromKeystore(keystore, "doctorcert");
+        if (verifySignature(signedFileContent, signature, publicKey)) {
+            System.out.println("Signature verified successfully for: " + filename);
+    
+            // Save the signed file content to a new file
+            String signedFilename = filename.substring(0, filename.lastIndexOf(".assinado")) + "_verified";
+            Path signedFilePath = clientDirectory.resolve(signedFilename);
+            Files.write(signedFilePath, signedFileContent);
+            System.out.println("Verified signed file saved as: " + signedFilename);
+        } else {
+            System.err.println("Signature verification failed for: " + filename);
+        }
     }
+     
     
     // Sends signed file to the server
     private static void sendSignedFile(DataOutputStream dos, String filename, byte[] fileBytes,

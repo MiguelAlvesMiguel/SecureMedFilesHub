@@ -196,50 +196,28 @@ private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) t
 
 private static void handleGCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
     int numberOfFiles = dis.readInt(); // Read the number of files
-    System.out.println("Received from client: " + numberOfFiles + " files");
     String patientUsername = dis.readUTF(); // Read the username
-    System.out.println("Received Patient username: " + patientUsername);
 
     Path patientDirectory = Paths.get(patientUsername);
-    System.out.println("Patient directory: " + patientDirectory);
 
     for (int i = 0; i < numberOfFiles; i++) {
-        System.out.println("Asking for filename from client...");
         String requestedFilename = dis.readUTF(); // Read the requested filename
-        System.out.println("Requested file: " + requestedFilename);
-        if (requestedFilename.isEmpty()) {
-            System.err.println("Received empty filename request.");
-            dos.writeBoolean(false); // Send false since filename is invalid
-            continue;
-        }
 
-        Path file = patientDirectory.resolve(requestedFilename + ".cifrado");
+        Path fileCifrado = patientDirectory.resolve(requestedFilename + ".cifrado");
         Path keyFile = patientDirectory.resolve(requestedFilename + ".chave_secreta." + patientUsername);
+        Path fileAssinado = patientDirectory.resolve(requestedFilename + ".assinado");
+        Path signatureFile = patientDirectory.resolve(requestedFilename + ".assinatura.doctor");
 
-        // Check if both the file and the key file exist
-        if (Files.exists(file) && Files.exists(keyFile)) {
-
-            System.out.println("File exists: " + file);
-            dos.writeBoolean(true); // File exists
-            //send name of file with extension
-            dos.writeUTF(requestedFilename + ".cifrado");
-
-            System.out.println("Sending file content...");
-            // Send the file content
-            byte[] fileContent = Files.readAllBytes(file);
-            System.out.println("Sending file content length: " + fileContent.length);
-            dos.writeInt(fileContent.length);
-            System.out.println("Sending file content bytes...");
-            dos.write(fileContent);
-
-            // Send the key content
-            byte[] keyContent = Files.readAllBytes(keyFile);
-            System.out.println("Sending key content Size...");
-            dos.writeInt(keyContent.length);
-            System.out.println("Sending key content bytes...");
-            dos.write(keyContent);
-
+        // Check for encrypted files and keys
+        if (Files.exists(fileCifrado) && Files.exists(keyFile)) {
+            sendFileContentAndKey( dos, fileCifrado, keyFile);
+        }
+        // Check for signed files and signatures
+         if (Files.exists(fileAssinado) && Files.exists(signatureFile)) {
+            System.out.println("Sending signed file and signature");
+            sendFileContentAndSignature( dos, fileAssinado, signatureFile);
         } else {
+            System.out.println(".assinado File not found");
             dos.writeBoolean(false); // File does not exist
         }
         dos.flush(); // Flush the stream after each file
@@ -248,6 +226,37 @@ private static void handleGCommand(DataInputStream dis, DataOutputStream dos) th
     dos.writeUTF("END"); // Signal the end of file transmission
     dos.flush();
 }
+
+private static void sendFileContentAndKey(DataOutputStream dos, Path fileCifrado, Path keyFile) throws IOException {
+    dos.writeBoolean(true); // File exists
+    dos.writeUTF(fileCifrado.getFileName().toString()); // Send file name with extension
+
+    // Send the file content
+    byte[] fileContent = Files.readAllBytes(fileCifrado);
+    dos.writeInt(fileContent.length);
+    dos.write(fileContent);
+
+    // Send the key content
+    byte[] keyContent = Files.readAllBytes(keyFile);
+    dos.writeInt(keyContent.length);
+    dos.write(keyContent);
+}
+
+private static void sendFileContentAndSignature(DataOutputStream dos, Path fileAssinado, Path signatureFile) throws IOException {
+    dos.writeBoolean(true); // Signed file exists
+    dos.writeUTF(fileAssinado.getFileName().toString()); // Send file name with extension
+
+    // Send the signed file content
+    byte[] signedFileContent = Files.readAllBytes(fileAssinado);
+    dos.writeInt(signedFileContent.length);
+    dos.write(signedFileContent);
+
+    // Send the signature content
+    byte[] signatureContent = Files.readAllBytes(signatureFile);
+    dos.writeInt(signatureContent.length);
+    dos.write(signatureContent);
+}
+
 
 
 private static void sendEncryptedFileWithKey(DataOutputStream dos, Path patientDirectory, String filename, String patientUsername) throws IOException {
