@@ -41,7 +41,6 @@ public class MySNSServer {
                     handleScCommand(dis, dos);
                     break;
                 case "-sa":
-              
                 handleSaCommand(dis, dos);
                     break;
                 case "-se":
@@ -196,42 +195,85 @@ private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) t
 
 
 private static void handleGCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
-    int numberOfFiles = dis.readInt();
-    String patientUsername = dis.readUTF(); // Reading the username for the -g command
-   
-    Path patientDirectory = Paths.get(patientUsername);
+    int numberOfFiles = dis.readInt(); // Read the number of files
+    System.out.println("Received from client: " + numberOfFiles + " files");
+    String patientUsername = dis.readUTF(); // Read the username
+    System.out.println("Received Patient username: " + patientUsername);
 
-    String[] possibleExtensions = {".cifrado", ".assinado", ".chave_secreta.patient", ".assinatura.doctor"}; // Add other possible extensions here
+    Path patientDirectory = Paths.get(patientUsername);
+    System.out.println("Patient directory: " + patientDirectory);
 
     for (int i = 0; i < numberOfFiles; i++) {
-        String requestedFilename = dis.readUTF();
-        System.out.println("Client requested: " + requestedFilename); // Server logging
-
-        boolean fileSent = false;
-
-        for (String ext : possibleExtensions) {
-            Path filePath = patientDirectory.resolve(requestedFilename + ext);
-            if (Files.exists(filePath)) {
-                byte[] fileContent = Files.readAllBytes(filePath);
-                System.out.println("Sending file: " + requestedFilename + ext + " Size: " + fileContent.length); // Server logging
-                dos.writeUTF(requestedFilename + ext);
-                dos.writeInt(fileContent.length);
-                dos.write(fileContent);
-                dos.flush(); // Flush the stream to ensure all data is sent
-                fileSent = true;
-                break; // Break after successfully sending the file
-            }
+        System.out.println("Asking for filename from client...");
+        String requestedFilename = dis.readUTF(); // Read the requested filename
+        System.out.println("Requested file: " + requestedFilename);
+        if (requestedFilename.isEmpty()) {
+            System.err.println("Received empty filename request.");
+            dos.writeBoolean(false); // Send false since filename is invalid
+            continue;
         }
 
-        if (!fileSent) {
-            dos.writeUTF("Error: File " + requestedFilename + " with expected extensions does not exist on the server.");
-            dos.flush(); // Flush to ensure the error message is sent
+        Path file = patientDirectory.resolve(requestedFilename + ".cifrado");
+        Path keyFile = patientDirectory.resolve(requestedFilename + ".chave_secreta." + patientUsername);
+
+        // Check if both the file and the key file exist
+        if (Files.exists(file) && Files.exists(keyFile)) {
+
+            System.out.println("File exists: " + file);
+            dos.writeBoolean(true); // File exists
+            //send name of file with extension
+            dos.writeUTF(requestedFilename + ".cifrado");
+
+            System.out.println("Sending file content...");
+            // Send the file content
+            byte[] fileContent = Files.readAllBytes(file);
+            System.out.println("Sending file content length: " + fileContent.length);
+            dos.writeInt(fileContent.length);
+            System.out.println("Sending file content bytes...");
+            dos.write(fileContent);
+
+            // Send the key content
+            byte[] keyContent = Files.readAllBytes(keyFile);
+            System.out.println("Sending key content Size...");
+            dos.writeInt(keyContent.length);
+            System.out.println("Sending key content bytes...");
+            dos.write(keyContent);
+
+        } else {
+            dos.writeBoolean(false); // File does not exist
         }
+        dos.flush(); // Flush the stream after each file
     }
 
     dos.writeUTF("END"); // Signal the end of file transmission
-    dos.flush(); // Flush the stream to ensure the end message is sent
+    dos.flush();
 }
+
+
+private static void sendEncryptedFileWithKey(DataOutputStream dos, Path patientDirectory, String filename, String patientUsername) throws IOException {
+    // Send encrypted file
+    Path filePath = patientDirectory.resolve(filename);
+    byte[] fileContent = Files.readAllBytes(filePath);
+    dos.writeInt(fileContent.length);
+    dos.write(fileContent);
+
+    // Send encrypted AES key
+    Path keyPath = patientDirectory.resolve(filename.replace(".cifrado", ".chave_secreta." + patientUsername));
+    if (Files.exists(keyPath)) {
+        byte[] keyContent = Files.readAllBytes(keyPath);
+        dos.writeInt(keyContent.length);
+        dos.write(keyContent);
+    } else {
+        dos.writeInt(0); // No key found, send 0 length
+    }
+}
+
+private static void sendSignedFileWithSignature(DataOutputStream dos, Path patientDirectory, String filename) throws IOException {
+    // Implementation for sending signed file along with its signature
+    // Similar to sendEncryptedFileWithKey but tailored for signed files
+    //TODO dps 
+}
+
 
 
 
