@@ -43,6 +43,29 @@ public class MySNS {
                 
                 // Process files based on the command
                 dos.writeInt(args.length - 7); // Send number of files
+
+                //Send the usernames before the main file loop:
+
+                switch(command){
+                    case "-sc":
+                        dos.writeUTF(patientUsername);
+                        break;
+                    case "-sa":
+                        dos.writeUTF(doctorUsername);
+                        dos.writeUTF(patientUsername);
+                        break;
+                    //case "-se":
+                    //    dos.writeUTF(doctorUsername);
+                    //    break;
+                    case "-g":
+                        dos.writeUTF(patientUsername);
+                        break;
+                    default:
+                        System.err.println("Unknown command: " + command);
+                        dos.writeUTF("Error: Unknown command");
+                        break;
+                }
+
                 for (int i = 7; i < args.length; i++) {
                     Path file = Paths.get(args[i]);
                     if (!Files.exists(file)) {
@@ -52,16 +75,15 @@ public class MySNS {
 
                    
                      if ("-sc".equals(command)) {
-                        dos.writeUTF(patientUsername); // For -sc, send patient username
+                 
                          processScCommand(file, dos, keystore, patientUsername);
                      } else if ("-sa".equals(command)) {
-                        dos.writeUTF(doctorUsername); // For -sa, send doctor username
-                        dos.writeUTF(patientUsername); // And then send patient username
-                         processSaCommand(file, dos, keystore, keystorePassword, doctorUsername, patientUsername);
+                   
+                         processSaCommand(file, dos,dis, keystore, keystorePassword, doctorUsername, patientUsername);
                      } else if ("-se".equals(command)) {
                          // processSeCommand(file, dos, keystore, keystorePassword, doctorUsername);
                      } else if ("-g".equals(command)) {
-                        dos.writeUTF(patientUsername);
+                  
                         processGCommand(dis, dos, keystore, patientUsername,args);
                      } else {
                          System.err.println("Unknown command: " + command);
@@ -70,16 +92,20 @@ public class MySNS {
                      }
                      // Here we read the server response for this particular file
                      String serverResponse = dis.readUTF();
-                     System.out.println(serverResponse); // Print the server's response
+                     System.out.println("Resposta server dps do processCommand: "+serverResponse); // Print the server's response
 
                      if (serverResponse.startsWith("Error:"))
                          nOfFilesAlreadyPresent++;
                      else
                          nOfFilesSent++;
 
+                        
+
                 }
                 dos.flush();
-
+                
+                String serverResponse = dis.readUTF();
+                System.out.println("Resposta server dps do loop: "+serverResponse); // Print the server's response
                 System.out.println("Operation complete. " + nOfFilesSent + " files sent, " + nOfFilesAlreadyPresent
                         + " files were already present.");
             }
@@ -101,7 +127,7 @@ public class MySNS {
     }
 
     // Sends encrypted file to the server
-    private static void sendEncryptedFile(DataOutputStream dos, String filename, byte[] encryptedFileBytes,
+    private static void sendEncryptedFile(DataOutputStream dos,  String filename, byte[] encryptedFileBytes,
             String patientUsername, byte[] encryptedAesKey) throws IOException {
         dos.writeUTF(filename); // Send base filename
         dos.writeInt(encryptedFileBytes.length); // Send encrypted file length
@@ -111,16 +137,19 @@ public class MySNS {
         dos.write(encryptedAesKey); // Send encrypted AES key content
     }
 
-        private static void processSaCommand(Path file, DataOutputStream dos, KeyStore keystore,
-        char[] keystorePassword, String doctorUsername,
-        String patientUsername) throws Exception {
+// Client side: MySNS.java
+private static void processSaCommand(Path file, DataOutputStream dos, DataInputStream dis, KeyStore keystore,
+    char[] keystorePassword, String doctorUsername, String patientUsername) throws Exception {
     byte[] fileBytes = Files.readAllBytes(file);
     PrivateKey privateKey = (PrivateKey) keystore.getKey(doctorUsername + "alias", keystorePassword);
     byte[] signedBytes = signFile(fileBytes, privateKey);
 
     sendSignedFile(dos, file.getFileName().toString(), fileBytes, signedBytes, doctorUsername);
-    // The response reading will happen after this method in the main loop
-    }
+    dos.flush(); // Flush the DOS to send the file data immediately
+
+}
+
+
 
      // Handles the "-g" command: get files from the server
      private static void processGCommand(DataInputStream dis, DataOutputStream dos, KeyStore keystore, String patientUsername, String[] args) throws Exception {
@@ -177,10 +206,9 @@ public class MySNS {
             System.out.println("File received and saved: " + filePath);
         }
 
-        // After all files are processed, you might want to wait for a final message
-        String finalMessage = dis.readUTF();
-
-        System.out.println("Server response: " + finalMessage);
+  
+        String finalMessage = dis.readUTF(); // Read the final message from the server
+        System.out.println("Server response: " + finalMessage); //Devia ser "END"
     }
 
     // Sends signed file to the server

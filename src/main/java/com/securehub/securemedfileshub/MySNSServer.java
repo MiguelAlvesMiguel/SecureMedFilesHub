@@ -96,14 +96,15 @@ private static void handleScCommand(DataInputStream dis, DataOutputStream dos) t
             dos.writeUTF("Success: File " + filename + ".cifrado and its key saved successfully.");
         }
     }
+    dos.writeUTF("COMPLETED");
+    dos.flush();
 }
-// -sa Command
+
 private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
     int numberOfFiles = dis.readInt();
     String doctorUsername = dis.readUTF();
     String patientUsername = dis.readUTF();
     
-
     Path patientDirectory = Paths.get(patientUsername);
     Files.createDirectories(patientDirectory);
 
@@ -125,10 +126,16 @@ private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) t
         } else {
             Files.write(signedFilePath, fileContent); // Save the signed file
             Files.write(signatureFilePath, signatureContent); // Save the signature
-            dos.writeUTF("Success: File " + baseFilename + "and its signature saved successfully.");
+            dos.writeUTF("Success: File " + baseFilename + " and its signature saved successfully.");
         }
+        dos.flush(); // Ensure the client receives the response immediately
     }
+    dos.writeUTF("END"); // Indicate that all operations for this command are complete
+    dos.flush();
 }
+
+
+
 private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) {
     // Placeholder for handling -se command
 }
