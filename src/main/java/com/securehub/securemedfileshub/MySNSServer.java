@@ -68,8 +68,9 @@ public class MySNSServer {
     
 // Code snippet for handling -sc command inside processClient method
 private static void handleScCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
-    String patientUsername = dis.readUTF();
     int numberOfFiles = dis.readInt();
+    String patientUsername = dis.readUTF();
+   
 
     Path patientDirectory = Paths.get(patientUsername);
     Files.createDirectories(patientDirectory);
@@ -96,13 +97,12 @@ private static void handleScCommand(DataInputStream dis, DataOutputStream dos) t
         }
     }
 }
-
-
 // -sa Command
 private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
+    int numberOfFiles = dis.readInt();
     String doctorUsername = dis.readUTF();
     String patientUsername = dis.readUTF();
-    int numberOfFiles = dis.readInt();
+    
 
     Path patientDirectory = Paths.get(patientUsername);
     Files.createDirectories(patientDirectory);
@@ -129,14 +129,49 @@ private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) t
         }
     }
 }
+private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) {
+    // Placeholder for handling -se command
+}
 
+private static void handleGCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
+    int numberOfFiles = dis.readInt();
+    String patientUsername = dis.readUTF(); // Reading the username for the -g command
+   
+    Path patientDirectory = Paths.get(patientUsername);
 
+    String[] possibleExtensions = {".cifrado", ".assinado", ".chave_secreta.patient", ".assinatura.doctor"}; // Add other possible extensions here
 
-    private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) {
-        // Placeholder for handling -se command
+    for (int i = 0; i < numberOfFiles; i++) {
+        String requestedFilename = dis.readUTF();
+        System.out.println("Client requested: " + requestedFilename); // Server logging
+
+        boolean fileSent = false;
+
+        for (String ext : possibleExtensions) {
+            Path filePath = patientDirectory.resolve(requestedFilename + ext);
+            if (Files.exists(filePath)) {
+                byte[] fileContent = Files.readAllBytes(filePath);
+                System.out.println("Sending file: " + requestedFilename + ext + " Size: " + fileContent.length); // Server logging
+                dos.writeUTF(requestedFilename + ext);
+                dos.writeInt(fileContent.length);
+                dos.write(fileContent);
+                dos.flush(); // Flush the stream to ensure all data is sent
+                fileSent = true;
+                break; // Break after successfully sending the file
+            }
+        }
+
+        if (!fileSent) {
+            dos.writeUTF("Error: File " + requestedFilename + " with expected extensions does not exist on the server.");
+            dos.flush(); // Flush to ensure the error message is sent
+        }
     }
 
-    private static void handleGCommand(DataInputStream dis, DataOutputStream dos) {
-        // Placeholder for handling -g command
-    }
+    dos.writeUTF("END"); // Signal the end of file transmission
+    dos.flush(); // Flush the stream to ensure the end message is sent
+}
+
+
+
+
 }
