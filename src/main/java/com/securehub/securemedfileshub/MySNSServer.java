@@ -135,10 +135,65 @@ private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) t
 }
 
 
+private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
+    try {
+        int numberOfFiles = dis.readInt();
+        String patientUsername = dis.readUTF();
+        String doctorUsername = dis.readUTF();
+        
+        Path patientDirectory = Paths.get(patientUsername);
+        Files.createDirectories(patientDirectory);
 
-private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) {
-    // Placeholder for handling -se command
+        for (int i = 0; i < numberOfFiles; i++) {
+            String filename = dis.readUTF();
+            int encryptedFileLength = dis.readInt();
+            byte[] encryptedFileBytes = new byte[encryptedFileLength];
+            dis.readFully(encryptedFileBytes);
+
+            int encryptedAesKeyLength = dis.readInt();
+            byte[] encryptedAesKey = new byte[encryptedAesKeyLength];
+            dis.readFully(encryptedAesKey);
+
+            int signedFileLength = dis.readInt();
+            byte[] signedFileBytes = new byte[signedFileLength];
+            dis.readFully(signedFileBytes);
+
+            int signatureLength = dis.readInt();
+            byte[] signatureBytes = new byte[signatureLength];
+            dis.readFully(signatureBytes);
+            
+            int fileLength = dis.readInt();
+            byte[] fileContent = new byte[fileLength];
+            dis.readFully(fileContent); // Read the file content
+
+            Path encryptedFilePath = patientDirectory.resolve(filename + ".cifrado");
+            Path aesKeyPath = patientDirectory.resolve(filename + ".chave_secreta." + patientUsername);
+            Path signedFilePath = patientDirectory.resolve(filename + ".seguro");
+            Path signaturePath = patientDirectory.resolve(filename + ".assinatura." + doctorUsername);
+            Path signedPath = patientDirectory.resolve(filename + ".assinado");
+
+
+            if (Files.exists(encryptedFilePath) || Files.exists(aesKeyPath) || Files.exists(signedFilePath) || Files.exists(signaturePath) || Files.exists(signedPath)) {
+                dos.writeUTF("Error: One or more files already exist on the server.");
+            } else {
+                Files.write(encryptedFilePath, encryptedFileBytes); // Save encrypted file
+                Files.write(aesKeyPath, encryptedAesKey); // Save encrypted AES key
+                Files.write(signedFilePath, signedFileBytes); // Save signed file
+                Files.write(signaturePath, signatureBytes); // Save signature
+                Files.write(signedPath, signedFileBytes);
+                dos.writeUTF("Success: Files saved successfully.");
+            }
+            dos.flush(); // Ensure the client receives the response immediately
+        }
+        dos.writeUTF("END"); // Indicate that all operations for this command are complete
+        dos.flush();
+    } catch (IOException e) {
+        e.printStackTrace();
+        dos.writeUTF("Error: An error occurred while processing the command."); // Notify client of failure
+        dos.flush();
+    }
 }
+
 
 private static void handleGCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
     int numberOfFiles = dis.readInt();

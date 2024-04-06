@@ -54,9 +54,10 @@ public class MySNS {
                         dos.writeUTF(doctorUsername);
                         dos.writeUTF(patientUsername);
                         break;
-                    //case "-se":
-                    //    dos.writeUTF(doctorUsername);
-                    //    break;
+                    case "-se":
+                        dos.writeUTF(doctorUsername);
+                        dos.writeUTF(patientUsername);
+                        break;
                     case "-g":
                         dos.writeUTF(patientUsername);
                         break;
@@ -79,9 +80,9 @@ public class MySNS {
                          processScCommand(file, dos, keystore, patientUsername);
                      } else if ("-sa".equals(command)) {
                    
-                         processSaCommand(file, dos,dis, keystore, keystorePassword, doctorUsername, patientUsername);
+                         processSaCommand(file, dos, dis, keystore, keystorePassword, doctorUsername, patientUsername);
                      } else if ("-se".equals(command)) {
-                         // processSeCommand(file, dos, keystore, keystorePassword, doctorUsername);
+                         processSeCommand(file, dos, dis, keystore, keystorePassword, doctorUsername, patientUsername);
                      } else if ("-g".equals(command)) {
                   
                         processGCommand(dis, dos, keystore, patientUsername,args);
@@ -125,6 +126,8 @@ public class MySNS {
         byte[] encryptedAesKey = encryptAESKey(aesKey, patientCert);
         sendEncryptedFile(dos, file.getFileName().toString(), encryptedFileBytes, patientUsername, encryptedAesKey);
     }
+    
+    
 
     // Sends encrypted file to the server
     private static void sendEncryptedFile(DataOutputStream dos,  String filename, byte[] encryptedFileBytes,
@@ -147,6 +150,25 @@ private static void processSaCommand(Path file, DataOutputStream dos, DataInputS
     sendSignedFile(dos, file.getFileName().toString(), fileBytes, signedBytes, doctorUsername);
     dos.flush(); // Flush the DOS to send the file data immediately
 
+}
+
+
+private static void processSeCommand(Path file, DataOutputStream dos, DataInputStream dis, KeyStore keystore,
+        char[] keystorePassword, String doctorUsername, String patientUsername) throws Exception {
+    SecretKey aesKey = generateAESKey();
+    byte[] fileBytes = Files.readAllBytes(file);
+    byte[] encryptedFileBytes = encryptFile(fileBytes, aesKey);
+
+    Certificate patientCert = keystore.getCertificate(patientUsername + "cert");
+    byte[] encryptedAesKey = encryptAESKey(aesKey, patientCert);
+
+    PrivateKey privateKey = (PrivateKey) keystore.getKey(doctorUsername + "alias", keystorePassword);
+    byte[] signedBytes = signFile(fileBytes, privateKey);
+    
+    byte[] signedFileBytes = signFile(encryptedFileBytes, privateKey); // Signing the encrypted file
+
+    sendEncryptedAndSignedFile(dos, file.getFileName().toString(), encryptedFileBytes, encryptedAesKey, signedBytes, signedFileBytes, fileBytes, patientUsername, doctorUsername);
+    dos.flush(); // Flush the DOS to send the file data immediately
 }
 
 
@@ -220,6 +242,31 @@ private static void processSaCommand(Path file, DataOutputStream dos, DataInputS
         dos.writeInt(signature.length); // Send signature length
         dos.write(signature); // Send signature content
     }
+    
+    private static void sendEncryptedAndSignedFile(DataOutputStream dos, String filename, byte[] encryptedFileBytes,
+            byte[] encryptedAesKey, byte[] signature, byte[] signedFileBytes, byte[] fileBytes, String patientUsername, String doctorUsername) throws IOException {
+        dos.writeUTF(filename); // Send base filename
+
+        // Send encrypted file
+        dos.writeInt(encryptedFileBytes.length);
+        dos.write(encryptedFileBytes);
+
+        // Send encrypted AES key
+        dos.writeInt(encryptedAesKey.length);
+        dos.write(encryptedAesKey);
+
+        dos.writeInt(signedFileBytes.length);
+        dos.write(signedFileBytes);
+        
+        // Send signature
+        dos.writeInt(signature.length);
+        dos.write(signature);
+        
+        dos.writeInt(fileBytes.length);
+        dos.write(fileBytes);
+
+    }
+
 
     // Decrypts the file using the provided AES key
     private static byte[] decryptFile(byte[] encryptedData, SecretKey aesKey) throws Exception {
