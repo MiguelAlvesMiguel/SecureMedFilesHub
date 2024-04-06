@@ -96,7 +96,7 @@ private static void handleScCommand(DataInputStream dis, DataOutputStream dos) t
             dos.writeUTF("Success: File " + filename + ".cifrado and its key saved successfully.");
         }
     }
-    dos.writeUTF("COMPLETED");
+    dos.writeUTF("END"); // Indicate that all operations for this command are complete
     dos.flush();
 }
 
