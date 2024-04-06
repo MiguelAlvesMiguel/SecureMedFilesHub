@@ -191,9 +191,9 @@ public class MySNS {
 
             if (fullFilename.endsWith(".cifrado")) {
                 System.out.println("Receiving encrypted file content for: " + filename);
-                receiveEncryptedFileAndDecrypt(dis, filename, keystore, patientUsername);
+                receiveEncryptedFileAndDecrypt(dis, fullFilename, keystore, patientUsername);
             } else if (fullFilename.endsWith(".assinado")) {
-                receiveSignedFileAndVerify(dis, filename, keystore);
+                receiveSignedFileAndVerify(dis, fullFilename, keystore);
             }
         }
     
@@ -210,7 +210,9 @@ public class MySNS {
         byte[] encryptedFileContent = new byte[encryptedFileLength];
         dis.readFully(encryptedFileContent);
         System.out.println("Received encrypted file content for: " + filename);
-    
+       
+        KeyStore clientKeystore = getKeyStore(patientUsername + ".keystore", "patient".toCharArray());
+
         // Receive encrypted AES key
         int encryptedKeyLength = dis.readInt();
         if (encryptedKeyLength > 0) {
@@ -219,8 +221,8 @@ public class MySNS {
             System.out.println("Received encrypted AES key for: " + filename);
     
             // Decrypt the AES key using the RSA private key
-            printKeystoreAliases(keystore); // Call this method before retrieving the key to see all aliases in the keystore.
-            PrivateKey rsaPrivateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", "patient".toCharArray());
+            printKeystoreAliases(clientKeystore); // Call this method before retrieving the key to see all aliases in the keystore.
+            PrivateKey rsaPrivateKey = (PrivateKey) clientKeystore.getKey("patientalias", "patient".toCharArray());
             if (rsaPrivateKey == null) {
                 throw new Exception("PrivateKey not found for alias: " + patientUsername + "alias");
             }
@@ -234,6 +236,7 @@ public class MySNS {
             aesCipher.init(Cipher.DECRYPT_MODE, aesKey);
             byte[] decryptedFileContent = aesCipher.doFinal(encryptedFileContent);
     
+            System.out.println("Decrypted file content for: " + filename);
             // Save the decrypted file content to a new file
             String decryptedFilename = filename.substring(0, filename.lastIndexOf(".cifrado")) + "_decrypted";
             Path decryptedFilePath = clientDirectory.resolve(decryptedFilename);
