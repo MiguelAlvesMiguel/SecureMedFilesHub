@@ -27,7 +27,10 @@ public class MySNS {
             // Argument validation and setup...
             String serverAddress = args[1].split(":")[0];
             int serverPort = Integer.parseInt(args[1].split(":")[1]);
-            String command = args[6];
+            String command = args[4];
+            if (!"-g".equals(command)) {
+            	command = args[6];
+            }
             String doctorUsername = args[3];
             char[] keystorePassword = "doctor".toCharArray(); // Replace with actual keystore password
             String patientUsername = args[5];
