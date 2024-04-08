@@ -12,11 +12,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.Key;
 import java.security.KeyStore;
+import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Signature;
 import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
 import java.util.Arrays;
 import java.util.Enumeration;
 
@@ -24,20 +26,41 @@ public class MySNS {
 
     public static void main(String[] args) {
         try {
+            /*
+             * O cliente pode ser utilizado com as seguintes opções na linha de comandos:
+             * [0] [1] [2] [3] [4] [5] [6] [7] ...
+             * mySNS -a <serverAddress> -m <username do médico> -u <username do utente> -sc
+             * {<filenames>}+
+             * mySNS -a <serverAddress> -m <username do médico>-u <username do utente> -sa
+             * {<filenames>}+
+             * mySNS -a <serverAddress> -m <username do médico> -u <username do utente> -se
+             * {<filenames>}+
+             * mySNS -a <serverAddress> -u <username do utente> -g {<filenames>}
+             * 
+             */
             // Argument validation and setup...
             String serverAddress = args[1].split(":")[0];
             int serverPort = Integer.parseInt(args[1].split(":")[1]);
-            String command = args[4];
-            if (!"-g".equals(command)) {
-            	command = args[6];
+
+            String command = "";
+            String patientUsername = "";
+            String doctorUsername = "";
+
+            // Se for -g é diferente
+            if (args[4].equals("-g")) {
+                command = args[4];
+                patientUsername = args[3];
+            } else {
+                command = args[6];
+                doctorUsername = args[3];
+                patientUsername = args[5];
             }
-            String doctorUsername = args[3];
-            char[] keystorePassword = "doctor".toCharArray(); // Replace with actual keystore password
-            String patientUsername = args[5];
+
+            char[] keystorePassword = "patient".toCharArray(); // Replace with actual keystore password
 
             int nOfFilesSent = 0;
             int nOfFilesAlreadyPresent = 0;
-            KeyStore keystore = getKeyStore(doctorUsername + ".keystore", keystorePassword);
+            KeyStore keystore = getKeyStore("patient.keystore", keystorePassword);
 
             try (Socket socket = new Socket(serverAddress, serverPort);
                     DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
@@ -45,11 +68,17 @@ public class MySNS {
                 dos.writeUTF(command); // Send the command
 
                 // Process files based on the command
-                System.out.println("Sending number of files: " + (args.length - 7));
-                dos.writeInt(args.length - 7); // Send number of files
+                int numberOfFiles = 0;
+
+                if (command.equals("-g")) {
+                    numberOfFiles = args.length - 5;
+                } else {
+                    numberOfFiles = args.length - 7;
+                }
+                System.out.println("Sending number of files: " + (numberOfFiles));
+                dos.writeInt(numberOfFiles); // Send the number of files to the server
 
                 // Send the usernames before the main file loop:
-
                 switch (command) {
                     case "-sc":
                         dos.writeUTF(patientUsername);
@@ -63,39 +92,42 @@ public class MySNS {
                         dos.writeUTF(patientUsername);
                         break;
                     case "-g":
-              
-                    System.out.println("Sending patient username: " + patientUsername);
-                    dos.writeUTF(patientUsername); // 2
+                        System.out.println("Sending patient username: " + patientUsername);
+                        dos.writeUTF(patientUsername); // 2
                         break;
                     default:
                         System.err.println("Unknown command: " + command);
                         dos.writeUTF("Error: Unknown command");
                         break;
                 }
+                int idxOfFirstFile = 7;
+                if ("-g".equals(command)) {
+                    // The files are after args[4] in the -g command, so change the next loop to
+                    // start from 4
+                    idxOfFirstFile = 5;
+                }
+                for (int i = idxOfFirstFile; i < args.length; i++) {
 
-                for (int i = 7; i < args.length; i++) {
                     Path file = Paths.get(args[i]);
-                    if (!Files.exists(file)) {
-                        System.err.println("File not found: " + file);
+
+                    if ("-g".equals(command)) {
+                        processGCommand(dis, dos, keystore, patientUsername, args);
+                    } else {if (!Files.exists(file)) {
+                        System.err.println("File not found in the client: " + file);
                         continue;
                     }
-
                     if ("-sc".equals(command)) {
-
                         processScCommand(file, dos, keystore, patientUsername);
                     } else if ("-sa".equals(command)) {
-
                         processSaCommand(file, dos, dis, keystore, keystorePassword, doctorUsername, patientUsername);
                     } else if ("-se".equals(command)) {
                         processSeCommand(file, dos, dis, keystore, keystorePassword, doctorUsername, patientUsername);
-                    } else if ("-g".equals(command)) {
-                        
-                        processGCommand(dis, dos, keystore, patientUsername, args);
                     } else {
                         System.err.println("Unknown command: " + command);
                         dos.writeUTF("Error: Unknown command");
                         continue;
-                    }
+                    }}
+
                     // Here we read the server response for this particular file
                     String serverResponse = dis.readUTF();
                     System.out.println("Resposta server dps do processCommand: " + serverResponse); // Print the
@@ -108,19 +140,21 @@ public class MySNS {
 
                 }
                 dos.flush();
-                
-                if (!"-g".equals(command)) 
-                   
-             {   String serverResponse = dis.readUTF();
-                System.out.println("Resposta server dps do loop: " + serverResponse); // Print the server's response
-                System.out.println("Operation complete. " + nOfFilesSent + " files sent, " + nOfFilesAlreadyPresent
-                        + " files were already present.");}
+
+                if (!"-g".equals(command))
+
+                {
+                    String serverResponse = dis.readUTF();
+                    System.out.println("Resposta server dps do loop: " + serverResponse); // Print the server's response
+                    System.out.println("Operation complete. " + nOfFilesSent + " files sent, " + nOfFilesAlreadyPresent
+                            + " files were already present.");
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
             System.exit(1);
         }
-        
+
     }
 
     // Handle -sc command processing
@@ -128,9 +162,25 @@ public class MySNS {
             throws Exception {
         SecretKey aesKey = generateAESKey();
         byte[] encryptedFileBytes = encryptFile(Files.readAllBytes(file), aesKey);
-        Certificate patientCert = keystore.getCertificate(patientUsername + "cert");
+        System.out.println("Fetching certificate with alias: " + patientUsername + "cert");
+        Certificate patientCert = keystore.getCertificate(patientUsername + "alias"); // O PROBLEMA TAVA AQUI, É PARA
+                                                                                      // DIZER O ALIAS N O CERT
+        System.out.println("Certificate retrieved Sucessfully");
         byte[] encryptedAesKey = encryptAESKey(aesKey, patientCert);
         sendEncryptedFile(dos, file.getFileName().toString(), encryptedFileBytes, patientUsername, encryptedAesKey);
+    }
+
+    // Encrypts the AES key with the public RSA key
+    private static byte[] encryptAESKey(SecretKey aesKey, Certificate cert) throws Exception {
+        if (cert == null) {
+            System.err.println(
+                    "Certificate is null. Check if the correct alias is used and the certificate exists in the KeyStore.");
+            return null; // or throw an exception
+        }
+        PublicKey publicKey = cert.getPublicKey();
+        Cipher rsaCipher = Cipher.getInstance("RSA");
+        rsaCipher.init(Cipher.ENCRYPT_MODE, publicKey);
+        return rsaCipher.doFinal(aesKey.getEncoded());
     }
 
     // Sends encrypted file to the server
@@ -147,8 +197,9 @@ public class MySNS {
     // Client side: MySNS.java
     private static void processSaCommand(Path file, DataOutputStream dos, DataInputStream dis, KeyStore keystore,
             char[] keystorePassword, String doctorUsername, String patientUsername) throws Exception {
+
         byte[] fileBytes = Files.readAllBytes(file);
-        PrivateKey privateKey = (PrivateKey) keystore.getKey(doctorUsername + "alias", keystorePassword);
+        PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", keystorePassword);
         byte[] signedBytes = signFile(fileBytes, privateKey);
 
         sendSignedFile(dos, file.getFileName().toString(), fileBytes, signedBytes, doctorUsername);
@@ -162,10 +213,10 @@ public class MySNS {
         byte[] fileBytes = Files.readAllBytes(file);
         byte[] encryptedFileBytes = encryptFile(fileBytes, aesKey);
 
-        Certificate patientCert = keystore.getCertificate(patientUsername + "cert");
+        Certificate patientCert = keystore.getCertificate(patientUsername + "alias");
         byte[] encryptedAesKey = encryptAESKey(aesKey, patientCert);
 
-        PrivateKey privateKey = (PrivateKey) keystore.getKey(doctorUsername + "alias", keystorePassword);
+        PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", keystorePassword);
         byte[] signedBytes = signFile(fileBytes, privateKey);
 
         byte[] signedFileBytes = signFile(encryptedFileBytes, privateKey); // Signing the encrypted file
@@ -176,47 +227,55 @@ public class MySNS {
     }
 
     // Handles the "-g" command: get files from the server
-    private static void processGCommand(DataInputStream dis, DataOutputStream dos, KeyStore keystore, String patientUsername, String[] args) throws Exception {
-       
-        int numberOfFiles = args.length - 7; // Corrected to reflect the actual number of files
-
-        for (int i = 7; i < args.length; i++) { // Corrected to start from the 7th index
+    private static void processGCommand(DataInputStream dis, DataOutputStream dos, KeyStore keystore,
+            String patientUsername, String[] args) throws Exception {
+        for (int i = 5; i < args.length; i++) {
             String filename = args[i];
             System.out.println("Requesting file: " + filename);
-            dos.writeUTF(filename); // Send the filename to the server
-            dos.flush(); // Flush the stream to make sure the data is sent
-    
-            boolean fileExists = dis.readBoolean(); // Read the response if file exists
+            dos.writeUTF(filename); // Send the filename with or without extension
+            dos.flush(); // Make sure the request is sent
+
+            boolean fileExists = dis.readBoolean();
             if (!fileExists) {
                 System.err.println(filename + " does not exist on the server.");
                 continue;
             }
-            System.out.println("File "+ filename+ " exists on the server. Receiving file content...");
-            
-            String fullFilename = dis.readUTF(); // Expecting the full filename
+            //Se chegámos aqui é porque o ficheiro existe
+            //If it exists but doesn't end with a valid extension, we will request the full name with the extension the server found
+            if (!filename.endsWith(".cifrado") && !filename.endsWith(".assinado") && !filename.endsWith(".seguro")) {
+                filename = dis.readUTF();
+            }
 
-            if (fullFilename.endsWith(".cifrado")) {
-                System.out.println("Receiving encrypted file content for: " + filename);
-                receiveEncryptedFileAndDecrypt(dis, fullFilename, keystore, patientUsername);
-            } else if (fullFilename.endsWith(".assinado")) {
-                receiveSignedFileAndVerify(dis, fullFilename, keystore);
+            // Depending on the extension received, handle the file accordingly
+            if (filename.endsWith(".cifrado")) {
+                receiveEncryptedFileAndDecrypt(dis, filename, keystore, patientUsername);
+            } else if (filename.endsWith(".assinado")) {
+                receiveSignedFileAndVerify(dis, filename, keystore);
+            } else if (filename.endsWith(".seguro")) {
+                // receiveSecureFile(dis, filename, keystore, patientUsername);
+            } else {
+                System.err.println("Unknown file extension for: " + filename + " . Skipping file.");
             }
         }
-    
-     
-
     }
-    
-    private static void receiveEncryptedFileAndDecrypt(DataInputStream dis, String filename, KeyStore keystore, String patientUsername) throws Exception {
+
+    private static void receiveSafestFile(DataInputStream dis, String baseFilename, KeyStore keystore,
+            String patientUsername) throws Exception {
+        // Implementation to handle the safest file form
+        // This may involve a combination of decryption and signature verification
+    }
+
+    private static void receiveEncryptedFileAndDecrypt(DataInputStream dis, String filename, KeyStore keystore,
+            String patientUsername) throws Exception {
         // Path to save decrypted files
         Path clientDirectory = Paths.get("Client");
-        
+
         // Receive encrypted file content
         int encryptedFileLength = dis.readInt();
         byte[] encryptedFileContent = new byte[encryptedFileLength];
         dis.readFully(encryptedFileContent);
         System.out.println("Received encrypted file content for: " + filename);
-       
+
         KeyStore clientKeystore = getKeyStore(patientUsername + ".keystore", "patient".toCharArray());
 
         // Receive encrypted AES key
@@ -225,9 +284,10 @@ public class MySNS {
             byte[] encryptedAesKey = new byte[encryptedKeyLength];
             dis.readFully(encryptedAesKey);
             System.out.println("Received encrypted AES key for: " + filename);
-    
+
             // Decrypt the AES key using the RSA private key
-            printKeystoreAliases(clientKeystore); // Call this method before retrieving the key to see all aliases in the keystore.
+            printKeystoreAliases(clientKeystore); // Call this method before retrieving the key to see all aliases in
+                                                  // the keystore.
             PrivateKey rsaPrivateKey = (PrivateKey) clientKeystore.getKey("patientalias", "patient".toCharArray());
             if (rsaPrivateKey == null) {
                 throw new Exception("PrivateKey not found for alias: " + patientUsername + "alias");
@@ -235,13 +295,13 @@ public class MySNS {
             Cipher rsaCipher = Cipher.getInstance("RSA");
             rsaCipher.init(Cipher.DECRYPT_MODE, rsaPrivateKey);
             byte[] aesKeyBytes = rsaCipher.doFinal(encryptedAesKey);
-    
+
             // Use the decrypted AES key to decrypt the file content
             SecretKey aesKey = new SecretKeySpec(aesKeyBytes, "AES");
             Cipher aesCipher = Cipher.getInstance("AES");
             aesCipher.init(Cipher.DECRYPT_MODE, aesKey);
             byte[] decryptedFileContent = aesCipher.doFinal(encryptedFileContent);
-    
+
             System.out.println("Decrypted file content for: " + filename);
             // Save the decrypted file content to a new file
             String decryptedFilename = filename.substring(0, filename.lastIndexOf(".cifrado")) + "_decrypted";
@@ -252,29 +312,36 @@ public class MySNS {
             System.err.println("No encrypted AES key received for: " + filename);
         }
     }
-    
-    
-    private static void receiveSignedFileAndVerify(DataInputStream dis, String filename, KeyStore keystore) throws Exception {
+
+    private static void receiveSignedFileAndVerify(DataInputStream dis, String filename, KeyStore keystore)
+            throws Exception {
         // Path to save signed files
         Path clientDirectory = Paths.get("Client");
-    
+
         // Receive signed file content
         int signedFileLength = dis.readInt();
         byte[] signedFileContent = new byte[signedFileLength];
         dis.readFully(signedFileContent);
         System.out.println("Received signed file content for: " + filename);
-    
+
         // Receive signature
         int signatureLength = dis.readInt();
+
+        //If its 0 then it was not found
+        if (signatureLength == 0) {
+            System.err.println("No signature found for: " + filename);
+            return;
+        }
+
         byte[] signature = new byte[signatureLength];
         dis.readFully(signature);
         System.out.println("Received signature for: " + filename);
-    
+
         // Verify signature
         PublicKey publicKey = getPublicKeyFromKeystore(keystore, "doctorcert");
         if (verifySignature(signedFileContent, signature, publicKey)) {
             System.out.println("Signature verified successfully for: " + filename);
-    
+
             // Save the signed file content to a new file
             String signedFilename = filename.substring(0, filename.lastIndexOf(".assinado")) + "_verified";
             Path signedFilePath = clientDirectory.resolve(signedFilename);
@@ -284,8 +351,7 @@ public class MySNS {
             System.err.println("Signature verification failed for: " + filename);
         }
     }
-     
-    
+
     // Sends signed file to the server
     private static void sendSignedFile(DataOutputStream dos, String filename, byte[] fileBytes,
             byte[] signature, String doctorUsername) throws IOException {
@@ -317,6 +383,49 @@ public class MySNS {
         dos.write(fileBytes);
     }
 
+    private static void receiveSecureFile(DataInputStream dis, String filename, KeyStore keystore, String patientUsername) throws Exception {
+        int fileLength = dis.readInt();
+        byte[] encryptedFileContent = new byte[fileLength];
+        dis.readFully(encryptedFileContent);
+    
+        int keyLength = dis.readInt();
+        byte[] encryptedKeyContent = keyLength > 0 ? new byte[keyLength] : null;
+        if (keyLength > 0) {
+            dis.readFully(encryptedKeyContent);
+        }
+    
+        int signatureLength = dis.readInt();
+        byte[] signatureContent = signatureLength > 0 ? new byte[signatureLength] : null;
+        if (signatureLength > 0) {
+            dis.readFully(signatureContent);
+        }
+    
+        // Decrypt the file content using the AES key
+        PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", "patient".toCharArray());
+        byte[] aesKeyBytes = decryptRSA(encryptedKeyContent, privateKey);
+        SecretKey aesKey = new SecretKeySpec(aesKeyBytes, "AES");
+        Cipher aesCipher = Cipher.getInstance("AES");
+        aesCipher.init(Cipher.DECRYPT_MODE, aesKey);
+        byte[] decryptedFileContent = aesCipher.doFinal(encryptedFileContent);
+    
+        // Verify the signature using the public key
+        PublicKey publicKey = keystore.getCertificate(patientUsername + "cert").getPublicKey();
+        Signature signature = Signature.getInstance("SHA256withRSA");
+        signature.initVerify(publicKey);
+        signature.update(decryptedFileContent);
+        boolean signatureVerified = signature.verify(signatureContent);
+    
+        // Save the decrypted and verified file content
+        if (signatureVerified) {
+            Path decryptedFilePath = Paths.get("Client", filename.replace(".seguro", "_verified.decrypted"));
+            Files.write(decryptedFilePath, decryptedFileContent);
+            System.out.println("Secure file decrypted and verified. Saved as: " + decryptedFilePath);
+        } else {
+            System.err.println("Signature verification failed for secure file: " + filename);
+        }
+    }
+    
+
     // Decrypts the file using the provided AES key
     private static byte[] decryptFile(byte[] encryptedData, SecretKey aesKey) throws Exception {
         Cipher cipher = Cipher.getInstance("AES");
@@ -339,12 +448,40 @@ public class MySNS {
     }
 
     // Retrieves the AES key for a specific file from the keystore
-    private static KeyStore getKeyStore(String keystorePath, char[] password) throws Exception {
-        // Specify the keystore type if it's not JKS
-        KeyStore keystore = KeyStore.getInstance("JKS"); // or "JCEKS" or "PKCS12" as appropriate
-        try (InputStream is = new FileInputStream(keystorePath)) {
-            keystore.load(is, password);
+    private static KeyStore getKeyStore(String keystorePath, char[] password) {
+        KeyStore keystore = null;
+        try {
+            keystore = KeyStore.getInstance("JKS");
+            try (InputStream is = new FileInputStream(keystorePath)) {
+                keystore.load(is, password);
+            }
+            System.out.println("Keystore loaded successfully.");
+        } catch (FileNotFoundException e) {
+            System.err.println("Keystore file not found: " + e.getMessage());
+        } catch (IOException e) {
+            System.err.println("Failed to read keystore file: " + e.getMessage());
+        } catch (NoSuchAlgorithmException e) {
+            System.err.println("Algorithm to check the integrity of the keystore cannot be found: " + e.getMessage());
+        } catch (CertificateException e) {
+            System.err.println("Any of the certificates in the keystore could not be loaded: " + e.getMessage());
+        } catch (KeyStoreException e) {
+            System.err.println("Keystore was not initialized: " + e.getMessage());
         }
+
+        if (keystore != null) {
+            try {
+                try {
+                    printKeystoreAliases(keystore);
+                } catch (Exception e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                }
+            } catch (Exception e) { // Catch any exception that occurs while printing the aliases
+                System.err.println("Failed to print keystore aliases. Error: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+
         return keystore;
     }
 
@@ -404,14 +541,6 @@ public class MySNS {
         Cipher aesCipher = Cipher.getInstance("AES");
         aesCipher.init(Cipher.ENCRYPT_MODE, aesKey);
         return aesCipher.doFinal(fileBytes);
-    }
-
-    // Encrypts the AES key with the public RSA key
-    private static byte[] encryptAESKey(SecretKey aesKey, Certificate cert) throws Exception {
-        PublicKey publicKey = cert.getPublicKey();
-        Cipher rsaCipher = Cipher.getInstance("RSA");
-        rsaCipher.init(Cipher.ENCRYPT_MODE, publicKey);
-        return rsaCipher.doFinal(aesKey.getEncoded());
     }
 
     // Signs the file using the doctor's private key from the keystore

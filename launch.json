@@ -3,11 +3,11 @@
     "configurations": [
         {
             "type": "java",
-            "name": "Launch MySNSClient",
+            "name": "Launch MySNSServer",
             "request": "launch",
-            "mainClass": "com.securehub.securemedfileshub.MySNSClient",
+            "mainClass": "com.securehub.securemedfileshub.MySNSServer",
             "projectName": "SecureMedFilesHub",
-            "cwd": "${workspaceFolder}"
+            "args": "23456"
         }
     ]
 }

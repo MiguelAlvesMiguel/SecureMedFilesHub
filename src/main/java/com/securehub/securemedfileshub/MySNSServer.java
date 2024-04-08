@@ -133,7 +133,6 @@ private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) t
     dos.flush();
 }
 
-
 private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
     try {
         int numberOfFiles = dis.readInt();
@@ -193,97 +192,145 @@ private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) t
     }
 }
 
-
 private static void handleGCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
-    int numberOfFiles = dis.readInt(); // Read the number of files
-    String patientUsername = dis.readUTF(); // Read the username
+    int numberOfFiles = dis.readInt();
+    String patientUsername = dis.readUTF();
 
     Path patientDirectory = Paths.get(patientUsername);
 
     for (int i = 0; i < numberOfFiles; i++) {
-        String requestedFilename = dis.readUTF(); // Read the requested filename
-
-        Path fileCifrado = patientDirectory.resolve(requestedFilename + ".cifrado");
-        Path keyFile = patientDirectory.resolve(requestedFilename + ".chave_secreta." + patientUsername);
-        Path fileAssinado = patientDirectory.resolve(requestedFilename + ".assinado");
-        Path signatureFile = patientDirectory.resolve(requestedFilename + ".assinatura.doctor");
-
-        // Check for encrypted files and keys
-        if (Files.exists(fileCifrado) && Files.exists(keyFile)) {
-            sendFileContentAndKey( dos, fileCifrado, keyFile);
+        System.out.println("Requesting file " + (i + 1) + " of " + numberOfFiles);
+        String requestedFilename = dis.readUTF();
+        String fileExtension = getFileExtension(requestedFilename);
+        Boolean foundExtension = !fileExtension.isEmpty();
+        if (fileExtension.isEmpty()) {
+            System.out.println("Security extension not recognized for file: " + requestedFilename+ " finding safest form...");
         }
-        // Check for signed files and signatures
-         if (Files.exists(fileAssinado) && Files.exists(signatureFile)) {
-            System.out.println("Sending signed file and signature");
-            sendFileContentAndSignature( dos, fileAssinado, signatureFile);
+
+        System.out.println("Requested file: " + requestedFilename + " with extension: " + fileExtension);
+        Path fileToSend = getFileToSend(patientDirectory, requestedFilename, foundExtension, patientUsername);
+        System.out.println("File to send: " + fileToSend);
+
+       //Print all files in the directory
+
+       System.out.println("Files in directory: ");
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(patientDirectory)) {
+            for (Path entry : stream) {
+                System.out.println(entry.getFileName());
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        if (Files.exists(patientDirectory.resolve(requestedFilename))) {
+        System.out.println("File Exists! Sending file...  " + fileToSend.getFileName());
+            dos.writeBoolean(true); // File exists
+             //If the extension was previously empty, send the file name with extension to the client
+        if(fileExtension.isEmpty()){
+            //Send file name with extension to client
+            System.out.println("Sending file name with extension to client: " + fileToSend.getFileName());
+            dos.writeUTF(fileToSend.getFileName().toString());
+        }
+            sendFile(dos, fileToSend, patientUsername);
         } else {
-            System.out.println(".assinado File not found");
             dos.writeBoolean(false); // File does not exist
         }
-        dos.flush(); // Flush the stream after each file
+        dos.flush();
     }
 
-    dos.writeUTF("END"); // Signal the end of file transmission
+    dos.writeUTF("END");
     dos.flush();
 }
 
-private static void sendFileContentAndKey(DataOutputStream dos, Path fileCifrado, Path keyFile) throws IOException {
-    dos.writeBoolean(true); // File exists
-    dos.writeUTF(fileCifrado.getFileName().toString()); // Send file name with extension
-
-    // Send the file content
-    byte[] fileContent = Files.readAllBytes(fileCifrado);
-    dos.writeInt(fileContent.length);
-    dos.write(fileContent);
-
-    // Send the key content
-    byte[] keyContent = Files.readAllBytes(keyFile);
-    dos.writeInt(keyContent.length);
-    dos.write(keyContent);
-}
-
-private static void sendFileContentAndSignature(DataOutputStream dos, Path fileAssinado, Path signatureFile) throws IOException {
-    dos.writeBoolean(true); // Signed file exists
-    dos.writeUTF(fileAssinado.getFileName().toString()); // Send file name with extension
-
-    // Send the signed file content
-    byte[] signedFileContent = Files.readAllBytes(fileAssinado);
-    dos.writeInt(signedFileContent.length);
-    dos.write(signedFileContent);
-
-    // Send the signature content
-    byte[] signatureContent = Files.readAllBytes(signatureFile);
-    dos.writeInt(signatureContent.length);
-    dos.write(signatureContent);
-}
-
-
-
-private static void sendEncryptedFileWithKey(DataOutputStream dos, Path patientDirectory, String filename, String patientUsername) throws IOException {
-    // Send encrypted file
-    Path filePath = patientDirectory.resolve(filename);
-    byte[] fileContent = Files.readAllBytes(filePath);
-    dos.writeInt(fileContent.length);
-    dos.write(fileContent);
-
-    // Send encrypted AES key
-    Path keyPath = patientDirectory.resolve(filename.replace(".cifrado", ".chave_secreta." + patientUsername));
-    if (Files.exists(keyPath)) {
-        byte[] keyContent = Files.readAllBytes(keyPath);
-        dos.writeInt(keyContent.length);
-        dos.write(keyContent);
-    } else {
-        dos.writeInt(0); // No key found, send 0 length
+private static String getFileExtension(String filename) {
+    if (filename.endsWith(".cifrado") || filename.endsWith(".assinado") || filename.endsWith(".seguro")) {
+        return filename.substring(filename.lastIndexOf("."));
     }
+    return ""; // Default to no extension if not recognized
 }
 
-private static void sendSignedFileWithSignature(DataOutputStream dos, Path patientDirectory, String filename) throws IOException {
-    // Implementation for sending signed file along with its signature
-    // Similar to sendEncryptedFileWithKey but tailored for signed files
-    //TODO dps 
+private static Path getFileToSend(Path directory, String filename, boolean foundExtension, String username) {
+    if (foundExtension) {
+        return directory.resolve(filename); // If the client specified an extension, use it
+    }
+    // If no extension specified, default to the safest form
+    System.out.println("EXTENSION EMPTY, finding safest extension... " + filename);
+    String baseName = filename; // Assuming filename comes without extension if extension is not recognized
+    Path seguro = directory.resolve(baseName + ".seguro");
+    if (Files.exists(seguro)) {
+        return seguro;
+    }
+    Path cifrado = directory.resolve(baseName + ".cifrado");
+    if (Files.exists(cifrado)) {
+        return cifrado;
+    }
+    return directory.resolve(baseName + ".assinado"); // Fallback to .assinado if nothing else is found
 }
 
+private static void sendFile(DataOutputStream dos, Path file, String username) throws IOException {
+    System.out.println("Preparing to send file: " + file);
+    byte[] fileContent = Files.readAllBytes(file);
+    dos.writeInt(fileContent.length);
+    dos.write(fileContent);
+    
+    String baseFilename = file.getFileName().toString().replaceAll("\\.(cifrado|assinado|seguro)$", "");
+    System.out.println("Base filename: " + baseFilename);
+    
+    if (file.toString().endsWith(".cifrado")) {
+        Path keyFile = file.getParent().resolve(baseFilename + ".chave_secreta." + username);
+        System.out.println("Looking for key file: " + keyFile);
+        
+        if (Files.exists(keyFile)) {
+            System.out.println("Key file found. Sending key file...");
+            byte[] keyContent = Files.readAllBytes(keyFile);
+            dos.writeInt(keyContent.length);
+            dos.write(keyContent);
+        } else {
+            System.out.println("Key file not found. Sending zero length.");
+            dos.writeInt(0); // No key found, send 0 length
+        }
+    } else if (file.toString().endsWith(".assinado")) {
+        Path signatureFile = file.getParent().resolve(baseFilename + ".assinatura.doctor");
+        System.out.println("Looking for signature file: " + signatureFile);
+        
+        if (Files.exists(signatureFile)) {
+            System.out.println("Signature file found. Sending signature...");
+            byte[] signatureContent = Files.readAllBytes(signatureFile);
+            dos.writeInt(signatureContent.length);
+            dos.write(signatureContent);
+        } else {
+            System.out.println("Signature file not found. Sending zero length.");
+            dos.writeInt(0); // No signature found, send 0 length
+        }
+    } else if (file.toString().endsWith(".seguro")) {
+        System.out.println("Processing .seguro file...");
 
+        Path keyFile = file.getParent().resolve(baseFilename + ".chave_secreta." + username);
+        System.out.println("Looking for key file: " + keyFile);
+        if (Files.exists(keyFile)) {
+            System.out.println("Key file found. Sending key file...");
+            byte[] keyContent = Files.readAllBytes(keyFile);
+            dos.writeInt(keyContent.length);
+            dos.write(keyContent);
+        } else {
+            System.out.println("Key file not found. Sending zero length.");
+            dos.writeInt(0);
+        }
+        
+        Path signatureFile = file.getParent().resolve(baseFilename + ".assinatura.doctor");
+        System.out.println("Looking for signature file: " + signatureFile);
+        if (Files.exists(signatureFile)) {
+            System.out.println("Signature file found. Sending signature...");
+            byte[] signatureContent = Files.readAllBytes(signatureFile);
+            dos.writeInt(signatureContent.length);
+            dos.write(signatureContent);
+        } else {
+            System.out.println("Signature file not found. Sending zero length.");
+            dos.writeInt(0);
+        }
+    }
+    System.out.println("File sending complete.");
+}
 
 
 
