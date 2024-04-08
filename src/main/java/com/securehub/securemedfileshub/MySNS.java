@@ -338,7 +338,10 @@ public class MySNS {
         System.out.println("Received signature for: " + filename);
 
         // Verify signature
-        PublicKey publicKey = getPublicKeyFromKeystore(keystore, "doctorcert");
+        KeyStore userKeystore = getKeyStore("patient.keystore", "patient".toCharArray());
+        printKeystoreAliases(userKeystore);
+        PublicKey publicKey = getPublicKeyFromKeystore(userKeystore, "doctorcert");
+
         if (verifySignature(signedFileContent, signature, publicKey)) {
             System.out.println("Signature verified successfully for: " + filename);
 
@@ -416,7 +419,7 @@ public class MySNS {
         boolean signatureVerified = signature.verify(signatureContent);
     
         // Save the decrypted and verified file content
-        if (signatureVerified) {
+        if (signatureVerified) {                                                                        //VER ISTO AQUI QUE N SEI SE É ASSIM    
             Path decryptedFilePath = Paths.get("Client", filename.replace(".seguro", "_verified.decrypted"));
             Files.write(decryptedFilePath, decryptedFileContent);
             System.out.println("Secure file decrypted and verified. Saved as: " + decryptedFilePath);
