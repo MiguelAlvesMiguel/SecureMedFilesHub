@@ -101,36 +101,37 @@ private static void handleScCommand(DataInputStream dis, DataOutputStream dos) t
 
 private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
     int numberOfFiles = dis.readInt();
-    String doctorUsername = dis.readUTF();
+
     String patientUsername = dis.readUTF();
-    
+   
+
     Path patientDirectory = Paths.get(patientUsername);
     Files.createDirectories(patientDirectory);
 
     for (int i = 0; i < numberOfFiles; i++) {
-        String baseFilename = dis.readUTF();
-        int fileLength = dis.readInt();
-        byte[] fileContent = new byte[fileLength];
-        dis.readFully(fileContent); // Read the file content
+        String signedFileName = dis.readUTF();
+        int signedFileLength = dis.readInt();
+        byte[] signedFileContent = new byte[signedFileLength];
+        dis.readFully(signedFileContent); // Read the signed file content
 
+        String signatureFileName = dis.readUTF();
         int signatureLength = dis.readInt();
         byte[] signatureContent = new byte[signatureLength];
         dis.readFully(signatureContent); // Read the signature content
 
-        Path signedFilePath = patientDirectory.resolve(baseFilename + ".assinado");
-        Path signatureFilePath = patientDirectory.resolve(baseFilename + ".assinatura." + doctorUsername);
+        Path signedFilePath = patientDirectory.resolve(signedFileName);
+        Path signatureFilePath = patientDirectory.resolve(signatureFileName);
 
         if (Files.exists(signedFilePath) || Files.exists(signatureFilePath)) {
-            dos.writeUTF("Error: File " + baseFilename + " or its signature already exists on the server.");
+            dos.writeUTF("Error: File " + signedFileName + " or its signature already exists on the server.");
         } else {
-            Files.write(signedFilePath, fileContent); // Save the signed file
+            Files.write(signedFilePath, signedFileContent); // Save the signed file
             Files.write(signatureFilePath, signatureContent); // Save the signature
-            dos.writeUTF("Success: File " + baseFilename + " and its signature saved successfully.");
+            dos.writeUTF("Success: File " + signedFileName + " and its signature saved successfully.");
         }
         dos.flush(); // Ensure the client receives the response immediately
     }
     dos.writeUTF("END"); // Indicate that all operations for this command are complete
-    dos.flush();
 }
 
 private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
@@ -251,20 +252,38 @@ private static String getFileExtension(String filename) {
 
 private static Path getFileToSend(Path directory, String filename, boolean foundExtension, String username) {
     if (foundExtension) {
-        return directory.resolve(filename); // If the client specified an extension, use it
+        Path filePath = directory.resolve(filename);
+        if (Files.exists(filePath)) {
+            return filePath.getFileName();
+        } else {
+            System.out.println("File not found: " + filePath);
+        }
     }
+
     // If no extension specified, default to the safest form
     System.out.println("EXTENSION EMPTY, finding safest extension... " + filename);
+    System.out.println("directory passed in params: " + directory);
+
     String baseName = filename; // Assuming filename comes without extension if extension is not recognized
+
     Path seguro = directory.resolve(baseName + ".seguro");
     if (Files.exists(seguro)) {
-        return seguro;
+        return seguro.getFileName();
     }
+
     Path cifrado = directory.resolve(baseName + ".cifrado");
     if (Files.exists(cifrado)) {
-        return cifrado;
+        return cifrado.getFileName();
     }
-    return directory.resolve(baseName + ".assinado"); // Fallback to .assinado if nothing else is found
+
+    Path assinado = directory.resolve(baseName + ".assinado");
+    if (Files.exists(assinado)) {
+        return assinado.getFileName();
+    }
+
+    // If no matching file is found, return null or throw an exception
+    System.out.println("No matching file found for: " + filename);
+    return null; // or throw an appropriate exception
 }
 
 private static void sendFile(DataOutputStream dos, Path file, String username) throws IOException {
