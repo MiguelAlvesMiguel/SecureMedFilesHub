@@ -308,6 +308,8 @@ public class MySNS {
         dos.writeUTF(filename); // Send the original file name
         dos.writeInt(fileBytes.length);
         dos.write(fileBytes);
+
+        //Falta o .assinado e o outro por aqui
     }
 
     // Handles the "-g" command: get files from the server
