@@ -54,6 +54,8 @@ public class MySNSServer {
                     dos.writeUTF("Error: Unknown command");
                     break;
             }
+            //send end response to client
+            dos.writeUTF("END");
         
     } catch (Exception e) {
         System.err.println("Error processing client request: " + e.getMessage());
@@ -138,54 +140,48 @@ private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) t
     try {
         int numberOfFiles = dis.readInt();
         String patientUsername = dis.readUTF();
-        String doctorUsername = dis.readUTF();
-        
+       
+
         Path patientDirectory = Paths.get(patientUsername);
         Files.createDirectories(patientDirectory);
 
         for (int i = 0; i < numberOfFiles; i++) {
-            String filename = dis.readUTF();
+            String secureFileName = dis.readUTF();
             int encryptedFileLength = dis.readInt();
             byte[] encryptedFileBytes = new byte[encryptedFileLength];
             dis.readFully(encryptedFileBytes);
 
+            String aesKeyFileName = dis.readUTF();
             int encryptedAesKeyLength = dis.readInt();
             byte[] encryptedAesKey = new byte[encryptedAesKeyLength];
             dis.readFully(encryptedAesKey);
 
-            int signedFileLength = dis.readInt();
-            byte[] signedFileBytes = new byte[signedFileLength];
-            dis.readFully(signedFileBytes);
-
+            String signatureFileName = dis.readUTF();
             int signatureLength = dis.readInt();
             byte[] signatureBytes = new byte[signatureLength];
             dis.readFully(signatureBytes);
-            
+
+            String originalFileName = dis.readUTF(); // Read the original file name
             int fileLength = dis.readInt();
-            byte[] fileContent = new byte[fileLength];
-            dis.readFully(fileContent); // Read the file content
+            byte[] fileBytes = new byte[fileLength];
+            dis.readFully(fileBytes);
 
-            Path encryptedFilePath = patientDirectory.resolve(filename + ".cifrado");
-            Path aesKeyPath = patientDirectory.resolve(filename + ".chave_secreta." + patientUsername);
-            Path signedFilePath = patientDirectory.resolve(filename + ".seguro");
-            Path signaturePath = patientDirectory.resolve(filename + ".assinatura." + doctorUsername);
-            Path signedPath = patientDirectory.resolve(filename + ".assinado");
+            Path secureFilePath = patientDirectory.resolve(secureFileName);
+            Path aesKeyPath = patientDirectory.resolve(aesKeyFileName);
+            Path signaturePath = patientDirectory.resolve(signatureFileName);
+            Path originalFilePath = patientDirectory.resolve(originalFileName + ".assinado"); // Save the original file with .assinado extension
 
-
-            if (Files.exists(encryptedFilePath) || Files.exists(aesKeyPath) || Files.exists(signedFilePath) || Files.exists(signaturePath) || Files.exists(signedPath)) {
+            if (Files.exists(secureFilePath) || Files.exists(aesKeyPath) || Files.exists(signaturePath) || Files.exists(originalFilePath)) {
                 dos.writeUTF("Error: One or more files already exist on the server.");
             } else {
-                Files.write(encryptedFilePath, encryptedFileBytes); // Save encrypted file
+                Files.write(secureFilePath, encryptedFileBytes); // Save secure file
                 Files.write(aesKeyPath, encryptedAesKey); // Save encrypted AES key
-                Files.write(signedFilePath, signedFileBytes); // Save signed file
                 Files.write(signaturePath, signatureBytes); // Save signature
-                Files.write(signedPath, signedFileBytes);
+                Files.write(originalFilePath, fileBytes); // Save the original file
                 dos.writeUTF("Success: Files saved successfully.");
             }
             dos.flush(); // Ensure the client receives the response immediately
         }
-        dos.writeUTF("END"); // Indicate that all operations for this command are complete
-        dos.flush();
     } catch (IOException e) {
         e.printStackTrace();
         dos.writeUTF("Error: An error occurred while processing the command."); // Notify client of failure

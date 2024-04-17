@@ -87,7 +87,6 @@ public class MySNS {
                         dos.writeUTF(patientUsername);
                         break;
                     case "-se":
-                        dos.writeUTF(doctorUsername);
                         dos.writeUTF(patientUsername);
                         break;
                     case "-g":
@@ -144,14 +143,18 @@ public class MySNS {
                 }
                 dos.flush();
 
-                if (!"-g".equals(command))
-
-                {
-                    String serverResponse = dis.readUTF();
-                    System.out.println("Resposta server dps do loop: " + serverResponse); // Print the server's response
+                if (!"-g".equals(command)) {
+                    try {
+                        String serverResponse = dis.readUTF();
+                        System.out.println("Resposta server dps do loop: " + serverResponse); // Print the server's
+                                                                                              // response
+                    } catch (EOFException e) {
+                        System.out.println("All Done");
+                    }
                     System.out.println("Operation complete. " + nOfFilesSent + " files sent, " + nOfFilesAlreadyPresent
                             + " files were already present.");
                 }
+
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -178,7 +181,7 @@ public class MySNS {
     // Generates an AES key
     private static SecretKey generateAESKey() throws NoSuchAlgorithmException {
         KeyGenerator keyGen = KeyGenerator.getInstance("AES");
-        keyGen.init(256); 
+        keyGen.init(256);
         return keyGen.generateKey();
     }
 
@@ -229,40 +232,39 @@ public class MySNS {
 
     // Client side: MySNS.java
     private static void processSaCommand(Path file, DataOutputStream dos, DataInputStream dis, KeyStore keystore,
-    char[] keystorePassword, String doctorUsername, String patientUsername) throws Exception {
-    byte[] fileBytes = Files.readAllBytes(file);
+            char[] keystorePassword, String doctorUsername, String patientUsername) throws Exception {
+        byte[] fileBytes = Files.readAllBytes(file);
 
-    PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", keystorePassword);
+        PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", keystorePassword);
 
-    byte[] signatureBytes = signFile(fileBytes, privateKey);
+        byte[] signatureBytes = signFile(fileBytes, privateKey);
 
-    sendSignedFile(dos, file.getFileName().toString(), fileBytes, signatureBytes, doctorUsername, patientUsername);
+        sendSignedFile(dos, file.getFileName().toString(), fileBytes, signatureBytes, doctorUsername, patientUsername);
 
-    dos.flush(); // Flush the DOS to send the file data immediately
+        dos.flush(); // Flush the DOS to send the file data immediately
     }
 
     // Signs the file using the patient's private key from the keystore
     private static byte[] signFile(byte[] fileBytes, PrivateKey privateKey) throws Exception {
-    Signature signature = Signature.getInstance("SHA256withRSA");
-    signature.initSign(privateKey);
-    signature.update(fileBytes);
-    return signature.sign();
+        Signature signature = Signature.getInstance("SHA256withRSA");
+        signature.initSign(privateKey);
+        signature.update(fileBytes);
+        return signature.sign();
     }
 
     // Sends the signed file and signature to the server
     private static void sendSignedFile(DataOutputStream dos, String fileName, byte[] fileBytes, byte[] signatureBytes,
-    String doctorUsername, String patientUsername) throws IOException {
-    // Send the signed file to the server
-    dos.writeUTF(fileName + ".assinado");
-    dos.writeInt(fileBytes.length);
-    dos.write(fileBytes);
+            String doctorUsername, String patientUsername) throws IOException {
+        // Send the signed file to the server
+        dos.writeUTF(fileName + ".assinado");
+        dos.writeInt(fileBytes.length);
+        dos.write(fileBytes);
 
-    // Send the signature to the server
-    dos.writeUTF(fileName + ".assinatura." + doctorUsername);
-    dos.writeInt(signatureBytes.length);
-    dos.write(signatureBytes);
+        // Send the signature to the server
+        dos.writeUTF(fileName + ".assinatura." + doctorUsername);
+        dos.writeInt(signatureBytes.length);
+        dos.write(signatureBytes);
     }
-
 
     private static void processSeCommand(Path file, DataOutputStream dos, DataInputStream dis, KeyStore keystore,
             char[] keystorePassword, String doctorUsername, String patientUsername) throws Exception {
@@ -270,17 +272,42 @@ public class MySNS {
         byte[] fileBytes = Files.readAllBytes(file);
         byte[] encryptedFileBytes = encryptFile(fileBytes, aesKey);
 
-        Certificate patientCert = keystore.getCertificate(patientUsername + "alias");
-        byte[] encryptedAesKey = encryptAESKey(aesKey, patientCert);
+        Certificate doctorCert = keystore.getCertificate(doctorUsername + "cert");
+        byte[] encryptedAesKey = encryptAESKey(aesKey, doctorCert);
 
         PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", keystorePassword);
-        byte[] signedBytes = signFile(fileBytes, privateKey);
+        byte[] signatureBytes = signFile(fileBytes, privateKey);
 
-        byte[] signedFileBytes = signFile(encryptedFileBytes, privateKey); // Signing the encrypted file
-
-        sendEncryptedAndSignedFile(dos, file.getFileName().toString(), encryptedFileBytes, encryptedAesKey, signedBytes,
-                signedFileBytes, fileBytes, patientUsername, doctorUsername);
+        sendEncryptedAndSignedFile(dos, file.getFileName().toString(), encryptedFileBytes, encryptedAesKey,
+                signatureBytes,
+                doctorUsername, patientUsername, fileBytes);
         dos.flush(); // Flush the DOS to send the file data immediately
+    }
+
+    private static void sendEncryptedAndSignedFile(DataOutputStream dos, String filename, byte[] encryptedFileBytes,
+            byte[] encryptedAesKey, byte[] signatureBytes, String doctorUsername, String patientUsername,
+            byte[] fileBytes)
+            throws IOException {
+        dos.writeUTF(filename + ".seguro"); // Send secure filename
+
+        // Send encrypted file
+        dos.writeInt(encryptedFileBytes.length);
+        dos.write(encryptedFileBytes);
+
+        // Send encrypted AES key
+        dos.writeUTF(filename + ".chave_secreta." + patientUsername);
+        dos.writeInt(encryptedAesKey.length);
+        dos.write(encryptedAesKey);
+
+        // Send signature
+        dos.writeUTF(filename + ".assinatura." + doctorUsername);
+        dos.writeInt(signatureBytes.length);
+        dos.write(signatureBytes);
+
+        // Send original file
+        dos.writeUTF(filename); // Send the original file name
+        dos.writeInt(fileBytes.length);
+        dos.write(fileBytes);
     }
 
     // Handles the "-g" command: get files from the server
@@ -411,29 +438,6 @@ public class MySNS {
         } else {
             System.err.println("Signature verification failed for: " + filename);
         }
-    }
-
- 
-
-    private static void sendEncryptedAndSignedFile(DataOutputStream dos, String filename, byte[] encryptedFileBytes,
-            byte[] encryptedAesKey, byte[] signature, byte[] signedFileBytes, byte[] fileBytes, String patientUsername,
-            String doctorUsername) throws IOException {
-        dos.writeUTF(filename); // Send base filename
-        // Send encrypted file
-        dos.writeInt(encryptedFileBytes.length);
-        dos.write(encryptedFileBytes);
-        // Send encrypted AES key
-        dos.writeInt(encryptedAesKey.length);
-        dos.write(encryptedAesKey);
-        dos.writeInt(signedFileBytes.length);
-        dos.write(signedFileBytes);
-
-        // Send signature
-        dos.writeInt(signature.length);
-        dos.write(signature);
-
-        dos.writeInt(fileBytes.length);
-        dos.write(fileBytes);
     }
 
     private static void receiveSecureFile(DataInputStream dis, String filename, KeyStore keystore,
@@ -581,7 +585,5 @@ public class MySNS {
             System.out.println("Alias in keystore: " + alias);
         }
     }
-
-  
 
 }
