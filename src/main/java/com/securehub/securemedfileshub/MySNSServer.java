@@ -4,6 +4,16 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.file.*;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.cert.CertificateException;
+import java.util.Enumeration;
+
+import javax.crypto.Cipher;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 
 public class MySNSServer {
 
@@ -197,6 +207,42 @@ private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) t
     }
 }
 
+private static KeyStore getKeyStore(String keystorePath, char[] password) {
+    KeyStore keystore = null;
+    try {
+        keystore = KeyStore.getInstance("JKS");
+        try (InputStream is = new FileInputStream(keystorePath)) {
+            keystore.load(is, password);
+        }
+        System.out.println("Keystore loaded successfully.");
+    } catch (FileNotFoundException e) {
+        System.err.println("Keystore file not found: " + e.getMessage());
+    } catch (IOException e) {
+        System.err.println("Failed to read keystore file: " + e.getMessage());
+    } catch (NoSuchAlgorithmException e) {
+        System.err.println("Algorithm to check the integrity of the keystore cannot be found: " + e.getMessage());
+    } catch (CertificateException e) {
+        System.err.println("Any of the certificates in the keystore could not be loaded: " + e.getMessage());
+    } catch (KeyStoreException e) {
+        System.err.println("Keystore was not initialized: " + e.getMessage());
+    }
+
+    if (keystore != null) {
+        try {
+            try {
+                printKeystoreAliases(keystore);
+            } catch (Exception e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+        } catch (Exception e) { // Catch any exception that occurs while printing the aliases
+            System.err.println("Failed to print keystore aliases. Error: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    return keystore;
+}
 private static void handleGCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
     int numberOfFiles = dis.readInt();
     String patientUsername = dis.readUTF();
@@ -206,38 +252,31 @@ private static void handleGCommand(DataInputStream dis, DataOutputStream dos) th
     for (int i = 0; i < numberOfFiles; i++) {
         System.out.println("Requesting file " + (i + 1) + " of " + numberOfFiles);
         String requestedFilename = dis.readUTF();
-        String fileExtension = getFileExtension(requestedFilename);
-        Boolean foundExtension = !fileExtension.isEmpty();
-        if (fileExtension.isEmpty()) {
-            System.out.println("Security extension not recognized for file: " + requestedFilename+ " finding safest form...");
-        }
+        System.out.println("Requested file: " + requestedFilename);
 
-        System.out.println("Requested file: " + requestedFilename + " with extension: " + fileExtension);
-        Path fileToSend = getFileToSend(patientDirectory, requestedFilename, foundExtension, patientUsername);
-        System.out.println("File to send: " + fileToSend);
+        Path cifradoFile = patientDirectory.resolve(requestedFilename + ".cifrado");
+        Path keyFile = patientDirectory.resolve(requestedFilename + ".chave_secreta." + patientUsername);
 
-       //Print all files in the directory
-
-       System.out.println("Files in directory: ");
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(patientDirectory)) {
-            for (Path entry : stream) {
-                System.out.println(entry.getFileName());
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        if (Files.exists(patientDirectory.resolve(requestedFilename))) {
-        System.out.println("File Exists! Sending file...  " + fileToSend.getFileName());
+        if (Files.exists(cifradoFile) && Files.exists(keyFile)) {
+            System.out.println("File Exists! Sending file... " + cifradoFile.getFileName());
             dos.writeBoolean(true); // File exists
-             //If the extension was previously empty, send the file name with extension to the client
-        if(fileExtension.isEmpty()){
-            //Send file name with extension to client
-            System.out.println("Sending file name with extension to client: " + fileToSend.getFileName());
-            dos.writeUTF(fileToSend.getFileName().toString());
-        }
-            sendFile(dos, fileToSend, patientUsername);
+
+            // Send the file name with the extension
+            dos.writeUTF(requestedFilename + ".cifrado");
+
+            // Read the encrypted file and key
+            byte[] encryptedFileContent = Files.readAllBytes(cifradoFile);
+            byte[] encryptedKeyContent = Files.readAllBytes(keyFile);
+
+            // Send the encrypted file
+            dos.writeInt(encryptedFileContent.length);
+            dos.write(encryptedFileContent);
+
+            // Send the encrypted key
+            dos.writeInt(encryptedKeyContent.length);
+            dos.write(encryptedKeyContent);
         } else {
+            System.out.println("File does not exist: " + requestedFilename);
             dos.writeBoolean(false); // File does not exist
         }
         dos.flush();
@@ -247,114 +286,18 @@ private static void handleGCommand(DataInputStream dis, DataOutputStream dos) th
     dos.flush();
 }
 
-private static String getFileExtension(String filename) {
-    if (filename.endsWith(".cifrado") || filename.endsWith(".assinado") || filename.endsWith(".seguro")) {
-        return filename.substring(filename.lastIndexOf("."));
+
+//Helper
+
+private static void printKeystoreAliases(KeyStore keystore) throws Exception {
+    System.out.println("Keystore contains the following aliases:");
+    Enumeration<String> aliases = keystore.aliases();
+    while (aliases.hasMoreElements()) {
+        String alias = aliases.nextElement();
+        System.out.println("Alias in keystore: " + alias);
     }
-    return ""; // Default to no extension if not recognized
 }
 
-private static Path getFileToSend(Path directory, String filename, boolean foundExtension, String username) {
-    if (foundExtension) {
-        Path filePath = directory.resolve(filename);
-        if (Files.exists(filePath)) {
-            return filePath.getFileName();
-        } else {
-            System.out.println("File not found: " + filePath);
-        }
-    }
-
-    // If no extension specified, default to the safest form
-    System.out.println("EXTENSION EMPTY, finding safest extension... " + filename);
-    System.out.println("directory passed in params: " + directory);
-
-    String baseName = filename; // Assuming filename comes without extension if extension is not recognized
-
-    Path seguro = directory.resolve(baseName + ".seguro");
-    if (Files.exists(seguro)) {
-        return seguro.getFileName();
-    }
-
-    Path cifrado = directory.resolve(baseName + ".cifrado");
-    if (Files.exists(cifrado)) {
-        return cifrado.getFileName();
-    }
-
-    Path assinado = directory.resolve(baseName + ".assinado");
-    if (Files.exists(assinado)) {
-        return assinado.getFileName();
-    }
-
-    // If no matching file is found, return null or throw an exception
-    System.out.println("No matching file found for: " + filename);
-    return null; // or throw an appropriate exception
-}
-
-private static void sendFile(DataOutputStream dos, Path file, String username) throws IOException {
-    System.out.println("Preparing to send file: " + file);
-    byte[] fileContent = Files.readAllBytes(file);
-    dos.writeInt(fileContent.length);
-    dos.write(fileContent);
-    
-    String baseFilename = file.getFileName().toString().replaceAll("\\.(cifrado|assinado|seguro)$", "");
-    System.out.println("Base filename: " + baseFilename);
-    
-    if (file.toString().endsWith(".cifrado")) {
-        Path keyFile = file.getParent().resolve(baseFilename + ".chave_secreta." + username);
-        System.out.println("Looking for key file: " + keyFile);
-        
-        if (Files.exists(keyFile)) {
-            System.out.println("Key file found. Sending key file...");
-            byte[] keyContent = Files.readAllBytes(keyFile);
-            dos.writeInt(keyContent.length);
-            dos.write(keyContent);
-        } else {
-            System.out.println("Key file not found. Sending zero length.");
-            dos.writeInt(0); // No key found, send 0 length
-        }
-    } else if (file.toString().endsWith(".assinado")) {
-        Path signatureFile = file.getParent().resolve(baseFilename + ".assinatura.doctor");
-        System.out.println("Looking for signature file: " + signatureFile);
-        
-        if (Files.exists(signatureFile)) {
-            System.out.println("Signature file found. Sending signature...");
-            byte[] signatureContent = Files.readAllBytes(signatureFile);
-            dos.writeInt(signatureContent.length);
-            dos.write(signatureContent);
-        } else {
-            System.out.println("Signature file not found. Sending zero length.");
-            dos.writeInt(0); // No signature found, send 0 length
-        }
-    } else if (file.toString().endsWith(".seguro")) {
-        System.out.println("Processing .seguro file...");
-
-        Path keyFile = file.getParent().resolve(baseFilename + ".chave_secreta." + username);
-        System.out.println("Looking for key file: " + keyFile);
-        if (Files.exists(keyFile)) {
-            System.out.println("Key file found. Sending key file...");
-            byte[] keyContent = Files.readAllBytes(keyFile);
-            dos.writeInt(keyContent.length);
-            dos.write(keyContent);
-        } else {
-            System.out.println("Key file not found. Sending zero length.");
-            dos.writeInt(0);
-        }
-        
-        Path signatureFile = file.getParent().resolve(baseFilename + ".assinatura.doctor");
-        System.out.println("Looking for signature file: " + signatureFile);
-        if (Files.exists(signatureFile)) {
-            System.out.println("Signature file found. Sending signature...");
-            byte[] signatureContent = Files.readAllBytes(signatureFile);
-            dos.writeInt(signatureContent.length);
-            dos.write(signatureContent);
-        } else {
-            System.out.println("Signature file not found. Sending zero length.");
-            dos.writeInt(0);
-        }
-    }
-    System.out.println("File sending complete.");
 }
 
 
-
-}
