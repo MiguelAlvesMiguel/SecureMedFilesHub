@@ -243,6 +243,7 @@ private static KeyStore getKeyStore(String keystorePath, char[] password) {
 
     return keystore;
 }
+
 private static void handleGCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
     int numberOfFiles = dis.readInt();
     String patientUsername = dis.readUTF();
@@ -256,29 +257,68 @@ private static void handleGCommand(DataInputStream dis, DataOutputStream dos) th
 
         Path cifradoFile = patientDirectory.resolve(requestedFilename + ".cifrado");
         Path keyFile = patientDirectory.resolve(requestedFilename + ".chave_secreta." + patientUsername);
+        Path assinadoFile = patientDirectory.resolve(requestedFilename + ".assinado");
+        Path signatureFile = patientDirectory.resolve(requestedFilename + ".assinatura.doctor");
+        Path seguroFile = patientDirectory.resolve(requestedFilename + ".seguro");
+
+        boolean fileExists = Files.exists(cifradoFile) && Files.exists(keyFile) ||
+                             Files.exists(assinadoFile) && Files.exists(signatureFile) ||
+                             Files.exists(seguroFile);
+
+        if (!fileExists)                              
+            dos.writeBoolean(false); // Indicate that the file does not exist in any form
 
         if (Files.exists(cifradoFile) && Files.exists(keyFile)) {
-            System.out.println("File Exists! Sending file... " + cifradoFile.getFileName());
-            dos.writeBoolean(true); // File exists
-
-            // Send the file name with the extension
+            System.out.println("Cifrado file exists! Sending file... " + cifradoFile.getFileName());
+            dos.writeBoolean(true);
             dos.writeUTF(requestedFilename + ".cifrado");
-
-            // Read the encrypted file and key
+           
+            // Read and send the encrypted file and key
             byte[] encryptedFileContent = Files.readAllBytes(cifradoFile);
             byte[] encryptedKeyContent = Files.readAllBytes(keyFile);
 
-            // Send the encrypted file
             dos.writeInt(encryptedFileContent.length);
             dos.write(encryptedFileContent);
-
-            // Send the encrypted key
             dos.writeInt(encryptedKeyContent.length);
             dos.write(encryptedKeyContent);
-        } else {
-            System.out.println("File does not exist: " + requestedFilename);
-            dos.writeBoolean(false); // File does not exist
         }
+
+        if (Files.exists(assinadoFile) && Files.exists(signatureFile)) {
+            System.out.println("Signed file exists! Sending file... " + assinadoFile.getFileName());
+            dos.writeBoolean(true);
+            dos.writeUTF(requestedFilename + ".assinado");
+           
+            // Read and send the signed file and signature
+            byte[] signedFileContent = Files.readAllBytes(assinadoFile);
+            byte[] signatureBytes = Files.readAllBytes(signatureFile);
+
+            dos.writeInt(signedFileContent.length);
+            dos.write(signedFileContent);
+            dos.writeInt(signatureBytes.length);
+            dos.write(signatureBytes);
+        }
+
+        if (Files.exists(seguroFile)) {
+            System.out.println("Secure file exists! Sending file... " + seguroFile.getFileName());
+            dos.writeBoolean(true);
+            dos.writeUTF(requestedFilename + ".seguro");
+    
+            // Read and send the secure file
+            byte[] secureFileContent = Files.readAllBytes(seguroFile);
+            dos.writeInt(secureFileContent.length);
+            dos.write(secureFileContent);
+
+            // Read and send the encrypted key
+            byte[] encryptedKeyContent = Files.readAllBytes(keyFile);
+            dos.writeInt(encryptedKeyContent.length);
+            dos.write(encryptedKeyContent);
+
+            // Read and send the signature
+            byte[] signatureBytes = Files.readAllBytes(signatureFile);
+            dos.writeInt(signatureBytes.length);
+            dos.write(signatureBytes);
+        }
+
         dos.flush();
     }
 
