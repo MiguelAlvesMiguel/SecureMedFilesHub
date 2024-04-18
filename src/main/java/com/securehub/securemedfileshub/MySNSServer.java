@@ -139,45 +139,53 @@ private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) t
 private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
     try {
         int numberOfFiles = dis.readInt();
+
         String patientUsername = dis.readUTF();
-       
 
         Path patientDirectory = Paths.get(patientUsername);
         Files.createDirectories(patientDirectory);
 
         for (int i = 0; i < numberOfFiles; i++) {
-            String secureFileName = dis.readUTF();
+            String cifradoFileName = dis.readUTF();
             int encryptedFileLength = dis.readInt();
             byte[] encryptedFileBytes = new byte[encryptedFileLength];
             dis.readFully(encryptedFileBytes);
+
+            String seguroFileName = dis.readUTF();
+            int secureFileLength = dis.readInt();
+            byte[] secureFileBytes = new byte[secureFileLength];
+            dis.readFully(secureFileBytes);
 
             String aesKeyFileName = dis.readUTF();
             int encryptedAesKeyLength = dis.readInt();
             byte[] encryptedAesKey = new byte[encryptedAesKeyLength];
             dis.readFully(encryptedAesKey);
 
-            String signatureFileName = dis.readUTF();
+            String assinadoFileName = dis.readUTF();
+            int assinadoFileLength = dis.readInt();
+            byte[] assinadoFileBytes = new byte[assinadoFileLength];
+            dis.readFully(assinadoFileBytes);
+
+            String assinaturaFileName = dis.readUTF();
             int signatureLength = dis.readInt();
             byte[] signatureBytes = new byte[signatureLength];
             dis.readFully(signatureBytes);
 
-            String originalFileName = dis.readUTF(); // Read the original file name
-            int fileLength = dis.readInt();
-            byte[] fileBytes = new byte[fileLength];
-            dis.readFully(fileBytes);
-
-            Path secureFilePath = patientDirectory.resolve(secureFileName);
+            Path cifradoFilePath = patientDirectory.resolve(cifradoFileName);
+            Path seguroFilePath = patientDirectory.resolve(seguroFileName);
             Path aesKeyPath = patientDirectory.resolve(aesKeyFileName);
-            Path signaturePath = patientDirectory.resolve(signatureFileName);
-            Path originalFilePath = patientDirectory.resolve(originalFileName + ".assinado"); // Save the original file with .assinado extension
+            Path assinadoFilePath = patientDirectory.resolve(assinadoFileName);
+            Path assinaturaFilePath = patientDirectory.resolve(assinaturaFileName);
 
-            if (Files.exists(secureFilePath) || Files.exists(aesKeyPath) || Files.exists(signaturePath) || Files.exists(originalFilePath)) {
+            if (Files.exists(cifradoFilePath) || Files.exists(seguroFilePath) || Files.exists(aesKeyPath) ||
+                    Files.exists(assinadoFilePath) || Files.exists(assinaturaFilePath)) {
                 dos.writeUTF("Error: One or more files already exist on the server.");
             } else {
-                Files.write(secureFilePath, encryptedFileBytes); // Save secure file
-                Files.write(aesKeyPath, encryptedAesKey); // Save encrypted AES key
-                Files.write(signaturePath, signatureBytes); // Save signature
-                Files.write(originalFilePath, fileBytes); // Save the original file
+                Files.write(cifradoFilePath, encryptedFileBytes); // Save .cifrado file
+                Files.write(seguroFilePath, secureFileBytes); // Save .seguro file
+                Files.write(aesKeyPath, encryptedAesKey); // Save .chave_secreta.<patientUsername> file
+                Files.write(assinadoFilePath, assinadoFileBytes); // Save .assinado file
+                Files.write(assinaturaFilePath, signatureBytes); // Save .assinatura.<doctorUsername> file
                 dos.writeUTF("Success: Files saved successfully.");
             }
             dos.flush(); // Ensure the client receives the response immediately
