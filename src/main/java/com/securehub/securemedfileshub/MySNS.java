@@ -170,7 +170,7 @@ public class MySNS {
     // Handle -sc command processing
     private static void processScCommand(Path file, DataOutputStream dos,  String doctorUsername,String patientUsername)
             throws Exception {
-        KeyStore keystore = getKeyStore(patientUsername+".keystore", "patient".toCharArray());
+        KeyStore keystore = getKeyStore(patientUsername+".keystore", patientUsername.toCharArray());
         SecretKey aesKey = generateAESKey();
         byte[] encryptedFileBytes = encryptFile(Files.readAllBytes(file), aesKey);
 
@@ -238,11 +238,11 @@ public class MySNS {
     // Client side: MySNS.java
     private static void processSaCommand(Path file, DataOutputStream dos, DataInputStream dis,  String doctorUsername, String patientUsername) throws Exception {
         
-        KeyStore keystore = getKeyStore(doctorUsername+".keystore", "doctor".toCharArray());
+        KeyStore keystore = getKeyStore(doctorUsername+".keystore", doctorUsername.toCharArray());
 
         byte[] fileBytes = Files.readAllBytes(file);
 
-        PrivateKey privateKey = (PrivateKey) keystore.getKey(doctorUsername + "alias", "doctor".toCharArray());
+        PrivateKey privateKey = (PrivateKey) keystore.getKey(doctorUsername + "alias", doctorUsername.toCharArray());
 
         byte[] signatureBytes = signFile(fileBytes, privateKey);
 
@@ -274,7 +274,7 @@ public class MySNS {
     }
 
     private static void processSeCommand(Path file, DataOutputStream dos, DataInputStream dis, String doctorUsername, String patientUsername) throws Exception {
-        KeyStore keystore = getKeyStore(doctorUsername + ".keystore", "doctor".toCharArray());
+        KeyStore keystore = getKeyStore(doctorUsername + ".keystore", doctorUsername.toCharArray());
     
         SecretKey aesKey = generateAESKey();
     
@@ -284,7 +284,7 @@ public class MySNS {
         Certificate patientCertificate = keystore.getCertificate(patientUsername + "cert");
         byte[] encryptedAesKey = encryptAESKey(aesKey, patientCertificate);
     
-        PrivateKey privateKey = (PrivateKey) keystore.getKey(doctorUsername + "alias", "doctor".toCharArray());
+        PrivateKey privateKey = (PrivateKey) keystore.getKey(doctorUsername + "alias", doctorUsername.toCharArray());
         byte[] signatureBytes = signFile(fileBytes, privateKey);
     
         sendEncryptedAndSignedFiles(dos, file.getFileName().toString(), encryptedFileBytes, encryptedAesKey, fileBytes, signatureBytes, doctorUsername, patientUsername);
@@ -351,7 +351,7 @@ public class MySNS {
     }
     private static void receiveSignedFileAndVerify(DataInputStream dis, String patientUsername, String receivedFilename) throws IOException {
         try {
-            KeyStore keystore = getKeyStore(patientUsername + ".keystore", "patient".toCharArray());
+            KeyStore keystore = getKeyStore(patientUsername + ".keystore", patientUsername.toCharArray());
 
             int signedFileLength = dis.readInt();
             byte[] signedFileContent = new byte[signedFileLength];
@@ -385,7 +385,7 @@ public class MySNS {
     }
     private static void receiveSecureFile(DataInputStream dis, String receivedFilename, String patientUsername) throws IOException {
         try {
-            KeyStore keystore = getKeyStore(patientUsername + ".keystore", "patient".toCharArray());
+            KeyStore keystore = getKeyStore(patientUsername + ".keystore", patientUsername.toCharArray());
 
             int encryptedFileLength = dis.readInt();
             byte[] encryptedFileContent = new byte[encryptedFileLength];
@@ -400,7 +400,7 @@ public class MySNS {
             dis.readFully(signatureBytes);
 
             // Decrypt the AES key
-            PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", "patient".toCharArray());
+            PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", patientUsername.toCharArray());
             byte[] decryptedKeyBytes = decryptAESKey(encryptedKeyContent, privateKey);
             SecretKey decryptedKey = new SecretKeySpec(decryptedKeyBytes, "AES");
 
@@ -434,7 +434,7 @@ public class MySNS {
     }
     private static void receiveEncryptedFileAndDecrypt(DataInputStream dis, String patientUsername, String receivedFilename) throws IOException {
         try {
-            KeyStore keystore = getKeyStore(patientUsername + ".keystore", "patient".toCharArray());
+            KeyStore keystore = getKeyStore(patientUsername + ".keystore", patientUsername.toCharArray());
             
             int encryptedFileLength = dis.readInt();
             byte[] encryptedFileContent = new byte[encryptedFileLength];
@@ -445,7 +445,7 @@ public class MySNS {
             dis.readFully(encryptedKeyContent);
 
             // Decrypt the AES key
-            PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", "patient".toCharArray());
+            PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", patientUsername.toCharArray());
             System.out.println("Private key: " + privateKey);
             byte[] decryptedKeyBytes = decryptAESKey(encryptedKeyContent, privateKey);
             SecretKey decryptedKey = new SecretKeySpec(decryptedKeyBytes, "AES");
@@ -482,47 +482,47 @@ public class MySNS {
 
    
    
-    private static void receiveSignedFileAndVerify(DataInputStream dis, String filename, KeyStore keystore)
-            throws Exception {
-        // Path to save signed files
-        Path clientDirectory = Paths.get("Client");
-
-        // Receive signed file content
-        int signedFileLength = dis.readInt();
-        byte[] signedFileContent = new byte[signedFileLength];
-        dis.readFully(signedFileContent);
-        System.out.println("Received signed file content for: " + filename);
-
-        // Receive signature
-        int signatureLength = dis.readInt();
-
-        // If its 0 then it was not found
-        if (signatureLength == 0) {
-            System.err.println("No signature found for: " + filename);
-            return;
-        }
-
-        byte[] signature = new byte[signatureLength];
-        dis.readFully(signature);
-        System.out.println("Received signature for: " + filename);
-
-        // Verify signature
-        KeyStore userKeystore = getKeyStore("patient.keystore", "patient".toCharArray());
-        printKeystoreAliases(userKeystore);
-        PublicKey publicKey = getPublicKeyFromKeystore(userKeystore, "doctorcert");
-
-        if (verifySignature(signedFileContent, signature, publicKey)) {
-            System.out.println("Signature verified successfully for: " + filename);
-
-            // Save the signed file content to a new file
-            String signedFilename = filename.substring(0, filename.lastIndexOf(".assinado")) + "_verified";
-            Path signedFilePath = clientDirectory.resolve(signedFilename);
-            Files.write(signedFilePath, signedFileContent);
-            System.out.println("Verified signed file saved as: " + signedFilename);
-        } else {
-            System.err.println("Signature verification failed for: " + filename);
-        }
-    }
+//    private static void receiveSignedFileAndVerify(DataInputStream dis, String filename, KeyStore keystore)
+//            throws Exception {
+//        // Path to save signed files
+//        Path clientDirectory = Paths.get("Client");
+//
+//        // Receive signed file content
+//        int signedFileLength = dis.readInt();
+//        byte[] signedFileContent = new byte[signedFileLength];
+//        dis.readFully(signedFileContent);
+//        System.out.println("Received signed file content for: " + filename);
+//
+//        // Receive signature
+//        int signatureLength = dis.readInt();
+//
+//        // If its 0 then it was not found
+//        if (signatureLength == 0) {
+//            System.err.println("No signature found for: " + filename);
+//            return;
+//        }
+//
+//        byte[] signature = new byte[signatureLength];
+//        dis.readFully(signature);
+//        System.out.println("Received signature for: " + filename);
+//
+//        // Verify signature
+//        KeyStore userKeystore = getKeyStore(patientUsername + ".keystore", patientUsername.toCharArray());
+//        printKeystoreAliases(userKeystore);
+//        PublicKey publicKey = getPublicKeyFromKeystore(userKeystore, "doctorcert");
+//
+//        if (verifySignature(signedFileContent, signature, publicKey)) {
+//            System.out.println("Signature verified successfully for: " + filename);
+//
+//            // Save the signed file content to a new file
+//            String signedFilename = filename.substring(0, filename.lastIndexOf(".assinado")) + "_verified";
+//            Path signedFilePath = clientDirectory.resolve(signedFilename);
+//            Files.write(signedFilePath, signedFileContent);
+//            System.out.println("Verified signed file saved as: " + signedFilename);
+//        } else {
+//            System.err.println("Signature verification failed for: " + filename);
+//        }
+//    }
 
     private static void receiveSecureFile(DataInputStream dis, String filename, KeyStore keystore,
             String patientUsername) throws Exception {
@@ -543,7 +543,7 @@ public class MySNS {
         }
 
         // Decrypt the file content using the AES key
-        PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", "patient".toCharArray());
+        PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", patientUsername.toCharArray());
         byte[] aesKeyBytes = decryptRSA(encryptedKeyContent, privateKey);
         SecretKey aesKey = new SecretKeySpec(aesKeyBytes, "AES");
         Cipher aesCipher = Cipher.getInstance("AES");
