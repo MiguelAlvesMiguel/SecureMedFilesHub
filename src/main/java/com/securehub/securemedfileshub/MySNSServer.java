@@ -65,6 +65,7 @@ public class MySNSServer {
                     break;
             }
             //send end response to client
+
             dos.writeUTF("END");
         
     } catch (Exception e) {
@@ -81,167 +82,202 @@ public class MySNSServer {
 private static void handleScCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
     int numberOfFiles = dis.readInt();
     String patientUsername = dis.readUTF();
-   
 
     Path patientDirectory = Paths.get(patientUsername);
     Files.createDirectories(patientDirectory);
 
     for (int i = 0; i < numberOfFiles; i++) {
         String filename = dis.readUTF();
-        int fileLength = dis.readInt();
-        byte[] fileContent = new byte[fileLength];
-        dis.readFully(fileContent); // Always read the file content
+        long fileSize = dis.readLong();
+        Path filePath = patientDirectory.resolve(filename + ".cifrado");
+        try (OutputStream fileOut = Files.newOutputStream(filePath)) {
+            byte[] buffer = new byte[4096];
+            long bytesRead = 0;
+            while (bytesRead < fileSize) {
+                int bytesToRead = (int) Math.min(buffer.length, fileSize - bytesRead);
+                int bytesReceived = dis.read(buffer, 0, bytesToRead);
+                if (bytesReceived == -1) {
+                    throw new EOFException("Unexpected end of stream while reading encrypted file");
+                }
+                fileOut.write(buffer, 0, bytesReceived);
+                bytesRead += bytesReceived;
+            }
+        }
 
         int keyLength = dis.readInt();
         byte[] keyContent = new byte[keyLength];
-        dis.readFully(keyContent); // Always read the encrypted AES key
+        dis.readFully(keyContent);
 
-        Path filePath = patientDirectory.resolve(filename + ".cifrado");
         Path keyPath = patientDirectory.resolve(filename + ".chave_secreta." + patientUsername);
 
-        if (Files.exists(filePath) || Files.exists(keyPath)) {
+        if (Files.exists(keyPath)) {
             dos.writeUTF("Error: File " + filename + ".cifrado or its key already exists on the server.");
         } else {
-            Files.write(filePath, fileContent); // Save encrypted file
-            Files.write(keyPath, keyContent); // Save encrypted AES key
+            Files.write(keyPath, keyContent);
             dos.writeUTF("Success: File " + filename + ".cifrado and its key saved successfully.");
         }
     }
-    dos.writeUTF("END"); // Indicate that all operations for this command are complete
+    dos.writeUTF("END");
     dos.flush();
 }
 
 private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
     int numberOfFiles = dis.readInt();
-
     String patientUsername = dis.readUTF();
-   
 
     Path patientDirectory = Paths.get(patientUsername);
     Files.createDirectories(patientDirectory);
 
     for (int i = 0; i < numberOfFiles; i++) {
         String signedFileName = dis.readUTF();
-        int signedFileLength = dis.readInt();
-        byte[] signedFileContent = new byte[signedFileLength];
-        dis.readFully(signedFileContent); // Read the signed file content
+        long signedFileSize = dis.readLong();
+        Path signedFilePath = patientDirectory.resolve(signedFileName);
+        try (OutputStream fileOut = Files.newOutputStream(signedFilePath)) {
+            byte[] buffer = new byte[4096];
+            long bytesRead = 0;
+            while (bytesRead < signedFileSize) {
+                int bytesToRead = (int) Math.min(buffer.length, signedFileSize - bytesRead);
+                int bytesReceived = dis.read(buffer, 0, bytesToRead);
+                if (bytesReceived == -1) {
+                    throw new EOFException("Unexpected end of stream while reading signed file");
+                }
+                fileOut.write(buffer, 0, bytesReceived);
+                bytesRead += bytesReceived;
+            }
+        }
 
         String signatureFileName = dis.readUTF();
         int signatureLength = dis.readInt();
         byte[] signatureContent = new byte[signatureLength];
-        dis.readFully(signatureContent); // Read the signature content
+        dis.readFully(signatureContent);
 
-        Path signedFilePath = patientDirectory.resolve(signedFileName);
         Path signatureFilePath = patientDirectory.resolve(signatureFileName);
 
-        if (Files.exists(signedFilePath) || Files.exists(signatureFilePath)) {
+        if (Files.exists(signatureFilePath)) {
             dos.writeUTF("Error: File " + signedFileName + " or its signature already exists on the server.");
         } else {
-            Files.write(signedFilePath, signedFileContent); // Save the signed file
-            Files.write(signatureFilePath, signatureContent); // Save the signature
+            Files.write(signatureFilePath, signatureContent);
             dos.writeUTF("Success: File " + signedFileName + " and its signature saved successfully.");
         }
-        dos.flush(); // Ensure the client receives the response immediately
+        dos.flush();
     }
-    dos.writeUTF("END"); // Indicate that all operations for this command are complete
+    dos.writeUTF("END");
 }
 
 private static void handleSeCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
     try {
         int numberOfFiles = dis.readInt();
-
+        System.out.println("Received number of files: " + numberOfFiles);
+        
         String patientUsername = dis.readUTF();
+        System.out.println("Received patient username: " + patientUsername);
 
         Path patientDirectory = Paths.get(patientUsername);
         Files.createDirectories(patientDirectory);
 
+        boolean allFilesSaved = true;
+
         for (int i = 0; i < numberOfFiles; i++) {
+
             String cifradoFileName = dis.readUTF();
-            int encryptedFileLength = dis.readInt();
-            byte[] encryptedFileBytes = new byte[encryptedFileLength];
-            dis.readFully(encryptedFileBytes);
+            System.out.println("Received cifrado file name: " + cifradoFileName);
+            long encryptedFileSize = dis.readLong();
+            System.out.println("Received encrypted file size: " + encryptedFileSize);
+            Path cifradoFilePath = patientDirectory.resolve(cifradoFileName);
+
+            // Receive cifrado file chunk
+            try (OutputStream cifradoOut = Files.newOutputStream(cifradoFilePath)) {
+                receiveFileChunk(dis, cifradoOut, encryptedFileSize);
+            }
+            System.out.println("Cifrado file chunk received and saved.");
 
             String seguroFileName = dis.readUTF();
-            int secureFileLength = dis.readInt();
-            byte[] secureFileBytes = new byte[secureFileLength];
-            dis.readFully(secureFileBytes);
+            System.out.println("Received seguro file name: " + seguroFileName);
+            long secureFileSize = dis.readLong();
+            System.out.println("Received secure file size: " + secureFileSize);
+            Path seguroFilePath = patientDirectory.resolve(seguroFileName);
+
+            // Receive seguro file chunk
+            try (OutputStream seguroOut = Files.newOutputStream(seguroFilePath)) {
+                receiveFileChunk(dis, seguroOut, secureFileSize);
+            }
+            System.out.println("Seguro file chunk received and saved.");
 
             String aesKeyFileName = dis.readUTF();
+            System.out.println("Received AES key file name: " + aesKeyFileName);
             int encryptedAesKeyLength = dis.readInt();
+            System.out.println("Received encrypted AES key length: " + encryptedAesKeyLength);
             byte[] encryptedAesKey = new byte[encryptedAesKeyLength];
             dis.readFully(encryptedAesKey);
+            Path aesKeyPath = patientDirectory.resolve(aesKeyFileName);
 
             String assinadoFileName = dis.readUTF();
-            int assinadoFileLength = dis.readInt();
-            byte[] assinadoFileBytes = new byte[assinadoFileLength];
-            dis.readFully(assinadoFileBytes);
+            System.out.println("Received assinado file name: " + assinadoFileName);
+            long assinadoFileSize = dis.readLong();
+            System.out.println("Received assinado file size: " + assinadoFileSize);
+            Path assinadoFilePath = patientDirectory.resolve(assinadoFileName);
+
+            // Receive assinado file chunk
+            try (OutputStream assinadoOut = Files.newOutputStream(assinadoFilePath)) {
+                receiveFileChunk(dis, assinadoOut, assinadoFileSize);
+            }
+            System.out.println("Assinado file chunk received and saved.");
 
             String assinaturaFileName = dis.readUTF();
+            System.out.println("Received assinatura file name: " + assinaturaFileName);
             int signatureLength = dis.readInt();
+            System.out.println("Received signature length: " + signatureLength);
             byte[] signatureBytes = new byte[signatureLength];
             dis.readFully(signatureBytes);
-
-            Path cifradoFilePath = patientDirectory.resolve(cifradoFileName);
-            Path seguroFilePath = patientDirectory.resolve(seguroFileName);
-            Path aesKeyPath = patientDirectory.resolve(aesKeyFileName);
-            Path assinadoFilePath = patientDirectory.resolve(assinadoFileName);
             Path assinaturaFilePath = patientDirectory.resolve(assinaturaFileName);
+                // Save the keys
+                System.out.println("Saving AES key...");
+                Files.write(aesKeyPath, encryptedAesKey);
+                System.out.println("AES key saved.");
 
-            if (Files.exists(cifradoFilePath) || Files.exists(seguroFilePath) || Files.exists(aesKeyPath) ||
-                    Files.exists(assinadoFilePath) || Files.exists(assinaturaFilePath)) {
-                dos.writeUTF("Error: One or more files already exist on the server.");
-            } else {
-                Files.write(cifradoFilePath, encryptedFileBytes); // Save .cifrado file
-                Files.write(seguroFilePath, secureFileBytes); // Save .seguro file
-                Files.write(aesKeyPath, encryptedAesKey); // Save .chave_secreta.<patientUsername> file
-                Files.write(assinadoFilePath, assinadoFileBytes); // Save .assinado file
-                Files.write(assinaturaFilePath, signatureBytes); // Save .assinatura.<doctorUsername> file
-                dos.writeUTF("Success: Files saved successfully.");
-            }
-            dos.flush(); // Ensure the client receives the response immediately
+                System.out.println("Saving signature...");
+                Files.write(assinaturaFilePath, signatureBytes);
+                System.out.println("Signature saved.");
+
+            //Send success response to the client
+            dos.writeUTF("Success: File saved successfully.");
+            System.out.println("Success response sent to the client.");
+            dos.writeUTF("next file if exists...");
+            System.out.println("next file if exists... sent to the client.");
+            
         }
+
+        //Check if all files were saved successfully
+
+        if (allFilesSaved) {
+            System.out.println("Sending success response to the client.");
+            dos.writeUTF("Success: Files saved successfully.");
+        } else {
+            System.out.println("Sending partial success response to the client.");
+            dos.writeUTF("Partial Success: Some files were saved, but others already existed.");
+        }
+        dos.flush();
+
     } catch (IOException e) {
         e.printStackTrace();
-        dos.writeUTF("Error: An error occurred while processing the command."); // Notify client of failure
+        System.out.println("Sending error response to the client.");
+        dos.writeUTF("Error: An error occurred while processing the command.");
         dos.flush();
     }
 }
 
-private static KeyStore getKeyStore(String keystorePath, char[] password) {
-    KeyStore keystore = null;
-    try {
-        keystore = KeyStore.getInstance("JKS");
-        try (InputStream is = new FileInputStream(keystorePath)) {
-            keystore.load(is, password);
+private static void receiveFileChunk(DataInputStream dis, OutputStream out, long fileSize) throws IOException {
+    byte[] buffer = new byte[4096];
+    long bytesRead = 0;
+    while (bytesRead < fileSize) {
+        int bytesToRead = (int) Math.min(buffer.length, fileSize - bytesRead);
+        int bytesReceived = dis.read(buffer, 0, bytesToRead);
+        if (bytesReceived == -1) {
+            throw new EOFException("Unexpected end of stream while reading file chunk");
         }
-        System.out.println("Keystore loaded successfully.");
-    } catch (FileNotFoundException e) {
-        System.err.println("Keystore file not found: " + e.getMessage());
-    } catch (IOException e) {
-        System.err.println("Failed to read keystore file: " + e.getMessage());
-    } catch (NoSuchAlgorithmException e) {
-        System.err.println("Algorithm to check the integrity of the keystore cannot be found: " + e.getMessage());
-    } catch (CertificateException e) {
-        System.err.println("Any of the certificates in the keystore could not be loaded: " + e.getMessage());
-    } catch (KeyStoreException e) {
-        System.err.println("Keystore was not initialized: " + e.getMessage());
+        out.write(buffer, 0, bytesReceived);
+        bytesRead += bytesReceived;
     }
-
-    if (keystore != null) {
-        try {
-            try {
-                printKeystoreAliases(keystore);
-            } catch (Exception e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-            }
-        } catch (Exception e) { // Catch any exception that occurs while printing the aliases
-            System.err.println("Failed to print keystore aliases. Error: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    return keystore;
 }
 
 private static void handleGCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
@@ -258,42 +294,68 @@ private static void handleGCommand(DataInputStream dis, DataOutputStream dos) th
         Path cifradoFile = patientDirectory.resolve(requestedFilename + ".cifrado");
         Path keyFile = patientDirectory.resolve(requestedFilename + ".chave_secreta." + patientUsername);
         Path assinadoFile = patientDirectory.resolve(requestedFilename + ".assinado");
-        Path signatureFile = patientDirectory.resolve(requestedFilename + ".assinatura.doctor");
+
+        // Search for the signature file with the doctor's username
+        Path signatureFile = null;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(patientDirectory, requestedFilename + ".assinatura.*")) {
+            for (Path file : stream) {
+                signatureFile = file;
+                break;
+            }
+        } catch (IOException e) {
+            System.err.println("Error searching for signature file: " + e.getMessage());
+        }
+
+        System.out.println("Signature file: " + (signatureFile != null ? signatureFile.getFileName() : "null"));
+
         Path seguroFile = patientDirectory.resolve(requestedFilename + ".seguro");
 
-        boolean fileExists = Files.exists(cifradoFile) && Files.exists(keyFile) ||
-                             Files.exists(assinadoFile) && Files.exists(signatureFile) ||
-                             Files.exists(seguroFile);
+        boolean fileExists = (Files.exists(cifradoFile) && Files.exists(keyFile)) ||
+                (Files.exists(assinadoFile) && signatureFile != null) ||
+                Files.exists(seguroFile);
 
-        if (!fileExists)                              
-            dos.writeBoolean(false); // Indicate that the file does not exist in any form
+        if (!fileExists)
+            dos.writeBoolean(false);
 
         if (Files.exists(cifradoFile) && Files.exists(keyFile)) {
             System.out.println("Cifrado file exists! Sending file... " + cifradoFile.getFileName());
             dos.writeBoolean(true);
             dos.writeUTF(requestedFilename + ".cifrado");
-           
-            // Read and send the encrypted file and key
-            byte[] encryptedFileContent = Files.readAllBytes(cifradoFile);
-            byte[] encryptedKeyContent = Files.readAllBytes(keyFile);
 
-            dos.writeInt(encryptedFileContent.length);
-            dos.write(encryptedFileContent);
+            // Read and send the encrypted file in chunks
+            long encryptedFileSize = Files.size(cifradoFile);
+            dos.writeLong(encryptedFileSize);
+            try (InputStream fileStream = Files.newInputStream(cifradoFile)) {
+                byte[] buffer = new byte[4096];
+                int bytesRead;
+                while ((bytesRead = fileStream.read(buffer)) != -1) {
+                    dos.write(buffer, 0, bytesRead);
+                }
+            }
+
+            byte[] encryptedKeyContent = Files.readAllBytes(keyFile);
             dos.writeInt(encryptedKeyContent.length);
             dos.write(encryptedKeyContent);
         }
 
-        if (Files.exists(assinadoFile) && Files.exists(signatureFile)) {
+        if (Files.exists(assinadoFile) && signatureFile != null) {
             System.out.println("Signed file exists! Sending file... " + assinadoFile.getFileName());
             dos.writeBoolean(true);
             dos.writeUTF(requestedFilename + ".assinado");
-           
-            // Read and send the signed file and signature
-            byte[] signedFileContent = Files.readAllBytes(assinadoFile);
-            byte[] signatureBytes = Files.readAllBytes(signatureFile);
 
-            dos.writeInt(signedFileContent.length);
-            dos.write(signedFileContent);
+            // Read and send the signed file in chunks
+            long signedFileSize = Files.size(assinadoFile);
+            dos.writeLong(signedFileSize);
+            try (InputStream fileStream = Files.newInputStream(assinadoFile)) {
+                byte[] buffer = new byte[4096];
+                int bytesRead;
+                while ((bytesRead = fileStream.read(buffer)) != -1) {
+                    dos.write(buffer, 0, bytesRead);
+                }
+            }
+
+            dos.writeUTF(signatureFile.getFileName().toString());
+            byte[] signatureBytes = Files.readAllBytes(signatureFile);
             dos.writeInt(signatureBytes.length);
             dos.write(signatureBytes);
         }
@@ -302,21 +364,30 @@ private static void handleGCommand(DataInputStream dis, DataOutputStream dos) th
             System.out.println("Secure file exists! Sending file... " + seguroFile.getFileName());
             dos.writeBoolean(true);
             dos.writeUTF(requestedFilename + ".seguro");
-    
-            // Read and send the secure file
-            byte[] secureFileContent = Files.readAllBytes(seguroFile);
-            dos.writeInt(secureFileContent.length);
-            dos.write(secureFileContent);
 
-            // Read and send the encrypted key
+            // Read and send the secure file in chunks
+            long secureFileSize = Files.size(seguroFile);
+            dos.writeLong(secureFileSize);
+            try (InputStream fileStream = Files.newInputStream(seguroFile)) {
+                byte[] buffer = new byte[4096];
+                int bytesRead;
+                while ((bytesRead = fileStream.read(buffer)) != -1) {
+                    dos.write(buffer, 0, bytesRead);
+                }
+            }
+
             byte[] encryptedKeyContent = Files.readAllBytes(keyFile);
             dos.writeInt(encryptedKeyContent.length);
             dos.write(encryptedKeyContent);
 
-            // Read and send the signature
-            byte[] signatureBytes = Files.readAllBytes(signatureFile);
-            dos.writeInt(signatureBytes.length);
-            dos.write(signatureBytes);
+            if (signatureFile != null) {
+                dos.writeUTF(signatureFile.getFileName().toString());
+                byte[] signatureBytes = Files.readAllBytes(signatureFile);
+                dos.writeInt(signatureBytes.length);
+                dos.write(signatureBytes);
+            } else {
+                dos.writeInt(0);
+            }
         }
 
         dos.flush();
@@ -326,9 +397,7 @@ private static void handleGCommand(DataInputStream dis, DataOutputStream dos) th
     dos.flush();
 }
 
-
 //Helper
-
 private static void printKeystoreAliases(KeyStore keystore) throws Exception {
     System.out.println("Keystore contains the following aliases:");
     Enumeration<String> aliases = keystore.aliases();
@@ -337,7 +406,6 @@ private static void printKeystoreAliases(KeyStore keystore) throws Exception {
         System.out.println("Alias in keystore: " + alias);
     }
 }
-
 }
 
 
