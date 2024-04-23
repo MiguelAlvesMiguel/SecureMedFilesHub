@@ -68,11 +68,12 @@ public class MySNSServer {
 
             dos.writeUTF("END");
         
-    } catch (Exception e) {
-        System.err.println("Error processing client request: " + e.getMessage());
-        e.printStackTrace();
-    }
-        finally {
+        } catch (Exception e) {
+            System.err.println("Error processing client request: " + e.getMessage());
+            e.printStackTrace();
+            dos.writeUTF("Error: " + e.getMessage());
+            dos.flush();
+        } finally {
             dis.close();
             dos.close();
         }
@@ -288,8 +289,10 @@ private static void handleGCommand(DataInputStream dis, DataOutputStream dos) th
 
     for (int i = 0; i < numberOfFiles; i++) {
         System.out.println("Requesting file " + (i + 1) + " of " + numberOfFiles);
+        
         String requestedFilename = dis.readUTF();
         System.out.println("Requested file: " + requestedFilename);
+
 
         Path cifradoFile = patientDirectory.resolve(requestedFilename + ".cifrado");
         Path keyFile = patientDirectory.resolve(requestedFilename + ".chave_secreta." + patientUsername);
@@ -315,7 +318,11 @@ private static void handleGCommand(DataInputStream dis, DataOutputStream dos) th
                 Files.exists(seguroFile);
 
         if (!fileExists)
-            dos.writeBoolean(false);
+            {
+                dos.writeBoolean(false);
+                continue;
+            }
+      
 
         if (Files.exists(cifradoFile) && Files.exists(keyFile)) {
             System.out.println("Cifrado file exists! Sending file... " + cifradoFile.getFileName());
@@ -364,7 +371,7 @@ private static void handleGCommand(DataInputStream dis, DataOutputStream dos) th
             System.out.println("Secure file exists! Sending file... " + seguroFile.getFileName());
             dos.writeBoolean(true);
             dos.writeUTF(requestedFilename + ".seguro");
-
+           
             // Read and send the secure file in chunks
             long secureFileSize = Files.size(seguroFile);
             dos.writeLong(secureFileSize);
@@ -390,10 +397,11 @@ private static void handleGCommand(DataInputStream dis, DataOutputStream dos) th
             }
         }
 
+        //Para sair do loop no client
+        dos.writeBoolean(false);
         dos.flush();
     }
 
-    dos.writeUTF("END");
     dos.flush();
 }
 

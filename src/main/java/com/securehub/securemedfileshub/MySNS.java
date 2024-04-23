@@ -60,6 +60,8 @@ public class MySNS {
 
             int nOfFilesSent = 0;
             int nOfFilesAlreadyPresent = 0;
+            int nOfFilesMissing = 0;
+            int nOfFilesReceived = 0;
 
             try (Socket socket = new Socket(serverAddress, serverPort);
                     DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
@@ -98,22 +100,29 @@ public class MySNS {
                         dos.writeUTF("Error: Unknown command");
                         break;
                 }
+
                 int idxOfFirstFile = 7;
                 if ("-g".equals(command)) {
-                    // The files are after args[4] in the -g command, so change the next loop to
-                    // start from 4
-                    idxOfFirstFile = 5;
-                }
-                for (int i = idxOfFirstFile; i < args.length; i++) {
-
-                    Path file = Paths.get(args[i]);
-                    String filename = args[i];
-
-                    if ("-g".equals(command)) {
-                        processGCommand(dis, dos, patientUsername, filename);
+                    command = args[4];
+                    patientUsername = args[3];
+                    String[] filenames = new String[args.length - 5];
+                    System.arraycopy(args, 5, filenames, 0, filenames.length);
+                    if (filenames.length > 0) {
+                        nOfFilesReceived=processGCommand(dis, dos, patientUsername, filenames);
+                        System.out.println("Operation complete. Number of files received: " + nOfFilesReceived + ".");
+                        dos.flush();
                     } else {
+                        System.out.println("No files specified for the -g command.");
+                    }
+
+                } else {
+                    for (int i = idxOfFirstFile; i < args.length; i++) {
+                        System.out.println("Processing file: " + args[i]);
+                        Path file = Paths.get(args[i]);
+
                         if (!Files.exists(file)) {
                             System.err.println("File not found in the client: " + file);
+                            nOfFilesMissing++;
                             continue;
                         }
                         if ("-sc".equals(command)) {
@@ -129,21 +138,20 @@ public class MySNS {
                             dos.writeUTF("Error: Unknown command");
                             continue;
                         }
+
+                        // resolver bug
+                        if (!"-g".equals(command)) {
+                            serverResponse = dis.readUTF();
+                            System.out.println("Resposta server dps do processCommand: " + serverResponse); // Print the
+                        } // server's response
+
+                        if (serverResponse.startsWith("Error:"))
+                            nOfFilesAlreadyPresent++;
+                        else
+                            nOfFilesSent++;
+
                     }
-
-                    // resolver bug
-                    if (!"-g".equals(command)) {
-                        serverResponse = dis.readUTF();
-                        System.out.println("Resposta server dps do processCommand: " + serverResponse); // Print the
-                    } // server's response
-
-                    if (serverResponse.startsWith("Error:"))
-                        nOfFilesAlreadyPresent++;
-                    else
-                        nOfFilesSent++;
-
                 }
-                dos.flush();
 
                 if (!"-g".equals(command)) {
                     try {
@@ -154,18 +162,47 @@ public class MySNS {
                         System.out.println("All Done");
                     }
                     System.out.println("Operation complete. " + nOfFilesSent + " files sent, " + nOfFilesAlreadyPresent
-                            + " files were already present.");
-                } else {
-
-                    System.out.println("Operation complete. " + nOfFilesSent + " files received.");
+                            + " files were already present, and " + nOfFilesMissing + " files were missing.");
                 }
-
             }
         } catch (Exception e) {
             e.printStackTrace();
             System.exit(1);
         }
 
+    }
+
+    private static int processGCommand(DataInputStream dis, DataOutputStream dos, String patientUsername,
+            String[] filenames) throws IOException {
+
+                int nOfFilesReceived = 0;
+        for (String filename : filenames) {
+            System.out.println("Requesting file: " + filename);
+            dos.writeUTF(filename);
+            dos.flush();
+
+            boolean fileExists = dis.readBoolean();
+            if (!fileExists) {
+                System.out.println("File does not exist on the server: " + filename);
+                continue;
+            }
+            System.out.println("File exists in some form: " + fileExists);
+            while (fileExists) {
+                String receivedFilename = dis.readUTF();
+                System.out.println("Receiving file: " + receivedFilename);
+                if (receivedFilename.endsWith(".cifrado")) {
+                    receiveEncryptedFileAndDecrypt(dis, patientUsername, receivedFilename);
+                    nOfFilesReceived++;
+                } else if (receivedFilename.endsWith(".assinado")) {
+                    receiveSignedFileAndVerify(dis, patientUsername, receivedFilename);nOfFilesReceived++;
+                } else if (receivedFilename.endsWith(".seguro")) {
+                    receiveSecureFile(dis, receivedFilename, patientUsername);nOfFilesReceived++;
+                }
+                fileExists = dis.readBoolean();
+            }
+        }
+
+       return nOfFilesReceived;
     }
 
     // Handle -sc command processing
@@ -290,115 +327,91 @@ public class MySNS {
     }
 
     private static void processSeCommand(Path file, DataOutputStream dos, DataInputStream dis, String doctorUsername,
-    String patientUsername) throws Exception {
-System.out.println("Processing -se command...");
+            String patientUsername) throws Exception {
+        System.out.println("Processing -se command...");
 
-KeyStore keystore = getKeyStore(doctorUsername + ".keystore", doctorUsername.toCharArray());
+        KeyStore keystore = getKeyStore(doctorUsername + ".keystore", doctorUsername.toCharArray());
 
-SecretKey aesKey = generateAESKey();
-System.out.println("Generated AES key.");
+        SecretKey aesKey = generateAESKey();
+        System.out.println("Generated AES key.");
 
-byte[] fileBytes = Files.readAllBytes(file);
-System.out.println("Read file bytes. Size: " + fileBytes.length);
+        byte[] fileBytes = Files.readAllBytes(file);
+        System.out.println("Read file bytes. Size: " + fileBytes.length);
 
-byte[] encryptedFileBytes = encryptFile(fileBytes, aesKey);
-System.out.println("Encrypted file bytes. Size: " + encryptedFileBytes.length);
+        byte[] encryptedFileBytes = encryptFile(fileBytes, aesKey);
+        System.out.println("Encrypted file bytes. Size: " + encryptedFileBytes.length);
 
-Certificate patientCertificate = keystore.getCertificate(patientUsername + "cert");
-byte[] encryptedAesKey = encryptAESKey(aesKey, patientCertificate);
-System.out.println("Encrypted AES key. Size: " + encryptedAesKey.length);
+        Certificate patientCertificate = keystore.getCertificate(patientUsername + "cert");
+        byte[] encryptedAesKey = encryptAESKey(aesKey, patientCertificate);
+        System.out.println("Encrypted AES key. Size: " + encryptedAesKey.length);
 
-PrivateKey privateKey = (PrivateKey) keystore.getKey(doctorUsername + "alias", doctorUsername.toCharArray());
-byte[] signatureBytes = signFile(fileBytes, privateKey);
-System.out.println("Signed file. Signature size: " + signatureBytes.length);
+        PrivateKey privateKey = (PrivateKey) keystore.getKey(doctorUsername + "alias", doctorUsername.toCharArray());
+        byte[] signatureBytes = signFile(fileBytes, privateKey);
+        System.out.println("Signed file. Signature size: " + signatureBytes.length);
 
-System.out.println("Sending encrypted and signed files to the server...");
-sendEncryptedAndSignedFiles(dos, file.getFileName().toString(), encryptedFileBytes, fileBytes, encryptedAesKey, signatureBytes,
-        doctorUsername, patientUsername);
+        System.out.println("Sending encrypted and signed files to the server...");
+        sendEncryptedAndSignedFiles(dos, file.getFileName().toString(), encryptedFileBytes, fileBytes, encryptedAesKey,
+                signatureBytes,
+                doctorUsername, patientUsername);
 
-System.out.println("Waiting for server response...");
-String serverResponse = dis.readUTF();
-System.out.println("Server response: " + serverResponse);
+        System.out.println("Waiting for server response...");
+        String serverResponse = dis.readUTF();
+        System.out.println("Server response: " + serverResponse);
 
-dos.flush(); // Flush the DOS to send the file data immediately
-}
-
-private static void sendEncryptedAndSignedFiles(DataOutputStream dos, String filename, byte[] encryptedFileBytes,
-    byte[] fileBytes, byte[] encryptedAesKey, byte[] signatureBytes, String doctorUsername, String patientUsername)
-    throws IOException {
-// Send encrypted file
-System.out.println("Sending encrypted file: " + filename + ".cifrado");
-dos.writeUTF(filename + ".cifrado");
-dos.writeLong(encryptedFileBytes.length);
-sendFileChunk(dos, encryptedFileBytes);
-
-// Send secure file
-System.out.println("Sending secure file: " + filename + ".seguro");
-dos.writeUTF(filename + ".seguro");
-dos.writeLong(encryptedFileBytes.length);
-sendFileChunk(dos, encryptedFileBytes);
-
-// Send encrypted AES key
-System.out.println("Sending encrypted AES key: " + filename + ".chave_secreta." + patientUsername);
-dos.writeUTF(filename + ".chave_secreta." + patientUsername);
-dos.writeInt(encryptedAesKey.length);
-dos.write(encryptedAesKey);
-
-// Console log filename
-System.out.println("Filename: " + filename);
-
-System.out.println("Sending signed file: " + filename + ".assinado");
-dos.writeUTF(filename + ".assinado");
-dos.writeLong(fileBytes.length);
-sendFileChunk(dos, fileBytes);
-
-System.out.println("Sending signature: " + filename + ".assinatura." + doctorUsername);
-dos.writeUTF(filename + ".assinatura." + doctorUsername);
-dos.writeInt(signatureBytes.length);
-dos.write(signatureBytes);
-}
-
-private static void sendFileChunk(DataOutputStream dos, byte[] fileBytes) throws IOException {
-int offset = 0;
-int length = 4096;
-while (offset < fileBytes.length) {
-    if (offset + length > fileBytes.length) {
-        length = fileBytes.length - offset;
+        dos.flush(); // Flush the DOS to send the file data immediately
     }
-    dos.write(fileBytes, offset, length);
-    offset += length;
-}
-System.out.println("File chunk sent.");
-}
 
-    private static void processGCommand(DataInputStream dis, DataOutputStream dos, String patientUsername,
-            String filename) throws IOException {
+    private static void sendEncryptedAndSignedFiles(DataOutputStream dos, String filename, byte[] encryptedFileBytes,
+            byte[] fileBytes, byte[] encryptedAesKey, byte[] signatureBytes, String doctorUsername,
+            String patientUsername)
+            throws IOException {
+        // Send encrypted file
+        System.out.println("Sending encrypted file: " + filename + ".cifrado");
+        dos.writeUTF(filename + ".cifrado");
+        dos.writeLong(encryptedFileBytes.length);
+        sendFileChunk(dos, encryptedFileBytes);
 
-        System.out.println("Requesting file: " + filename);
-        dos.writeUTF(filename);
-        dos.flush();
+        // Send secure file
+        System.out.println("Sending secure file: " + filename + ".seguro");
+        dos.writeUTF(filename + ".seguro");
+        dos.writeLong(encryptedFileBytes.length);
+        sendFileChunk(dos, encryptedFileBytes);
 
-        boolean hasMoreFiles = true;
-        while (hasMoreFiles) {
-            boolean fileExists = dis.readBoolean();
-            if (fileExists) {
-                String receivedFilename = dis.readUTF();
-                System.out.println("Receiving file: " + receivedFilename);
-                if (receivedFilename.endsWith(".cifrado")) {
-                    receiveEncryptedFileAndDecrypt(dis, patientUsername, receivedFilename);
-                } else if (receivedFilename.endsWith(".assinado")) {
-                    receiveSignedFileAndVerify(dis, patientUsername, receivedFilename);
-                } else if (receivedFilename.endsWith(".seguro")) {
-                    receiveSecureFile(dis, receivedFilename, patientUsername);
-                }
-            } else {
-                hasMoreFiles = false;
+        // Send encrypted AES key
+        System.out.println("Sending encrypted AES key: " + filename + ".chave_secreta." + patientUsername);
+        dos.writeUTF(filename + ".chave_secreta." + patientUsername);
+        dos.writeInt(encryptedAesKey.length);
+        dos.write(encryptedAesKey);
+
+        // Console log filename
+        System.out.println("Filename: " + filename);
+
+        System.out.println("Sending signed file: " + filename + ".assinado");
+        dos.writeUTF(filename + ".assinado");
+        dos.writeLong(fileBytes.length);
+        sendFileChunk(dos, fileBytes);
+
+        System.out.println("Sending signature: " + filename + ".assinatura." + doctorUsername);
+        dos.writeUTF(filename + ".assinatura." + doctorUsername);
+        dos.writeInt(signatureBytes.length);
+        dos.write(signatureBytes);
+    }
+
+    private static void sendFileChunk(DataOutputStream dos, byte[] fileBytes) throws IOException {
+        int offset = 0;
+        int length = 4096;
+        while (offset < fileBytes.length) {
+            if (offset + length > fileBytes.length) {
+                length = fileBytes.length - offset;
             }
+            dos.write(fileBytes, offset, length);
+            offset += length;
         }
-
+        System.out.println("File chunk sent.");
     }
 
-    private static void receiveSignedFileAndVerify(DataInputStream dis, String patientUsername, String receivedFilename) throws IOException {
+    private static void receiveSignedFileAndVerify(DataInputStream dis, String patientUsername, String receivedFilename)
+            throws IOException {
         try {
             KeyStore keystore = getKeyStore(patientUsername + ".keystore", patientUsername.toCharArray());
 
@@ -451,7 +464,8 @@ System.out.println("File chunk sent.");
         }
     }
 
-    private static void receiveSecureFile(DataInputStream dis, String receivedFilename, String patientUsername) throws IOException {
+    private static void receiveSecureFile(DataInputStream dis, String receivedFilename, String patientUsername)
+            throws IOException {
         try {
             KeyStore keystore = getKeyStore(patientUsername + ".keystore", patientUsername.toCharArray());
 
@@ -486,7 +500,8 @@ System.out.println("File chunk sent.");
             dis.readFully(signatureBytes);
 
             // Decrypt the AES key
-            PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias", patientUsername.toCharArray());
+            PrivateKey privateKey = (PrivateKey) keystore.getKey(patientUsername + "alias",
+                    patientUsername.toCharArray());
             byte[] decryptedKeyBytes = decryptAESKey(encryptedKeyContent, privateKey);
             SecretKey decryptedKey = new SecretKeySpec(decryptedKeyBytes, "AES");
 
