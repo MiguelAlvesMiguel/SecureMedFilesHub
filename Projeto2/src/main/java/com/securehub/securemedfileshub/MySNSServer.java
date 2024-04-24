@@ -1,11 +1,25 @@
 package com.securehub.securemedfileshub;
 
+//
+
+import java.util.Scanner;
+import javax.crypto.KeyGenerator;
+
+
+import javax.crypto.SecretKeyFactory;
+import java.util.Base64;
+
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.file.*;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
+import java.security.SecureRandom;
+import java.security.spec.KeySpec;
+
+import java.security.spec.InvalidKeySpecException;
+
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.cert.CertificateException;
@@ -14,15 +28,26 @@ import java.util.Enumeration;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
-
+import javax.crypto.spec.PBEKeySpec;
 public class MySNSServer {
-
+    private static final String USERS_FILE = "users";
     public static void main(String[] args) {
         if (args.length != 1) {
             System.err.println("Usage: java MySNSServer <port>");
             return;
         }
         int port = Integer.parseInt(args[0]);
+
+        // Check if the "users" file exists
+    Path usersFilePath = Paths.get(USERS_FILE);
+    if (!Files.exists(usersFilePath)) {
+        // Create the "users" file with the "admin" user
+        Scanner scanner = new Scanner(System.in);
+        System.out.print("Enter password for the 'admin' user: ");
+        String adminPassword = scanner.nextLine();
+        createUsersFile(usersFilePath, adminPassword);
+    }
+
         System.out.println("Server listening on port " + port);
 
         try (ServerSocket serverSocket = new ServerSocket(port)) {
@@ -36,6 +61,45 @@ public class MySNSServer {
             }
         } catch (IOException e) {
             System.err.println("Server could not start: " + e.getMessage());
+        }
+    }
+
+
+    private static String generateSalt() {
+        // Generate a random salt
+        SecureRandom random = new SecureRandom();
+        byte[] saltBytes = new byte[16];
+        random.nextBytes(saltBytes);
+        return Base64.getEncoder().encodeToString(saltBytes);
+    }
+    
+    private static String hashPassword(String password, String salt) {
+        // Hash the password with the salt using PBKDF2
+        try {
+            KeySpec spec = new PBEKeySpec(password.toCharArray(), salt.getBytes(), 10000, 256);
+            SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+            byte[] hashedBytes = factory.generateSecret(spec).getEncoded();
+            return Base64.getEncoder().encodeToString(hashedBytes);
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+            throw new RuntimeException("Error hashing password: " + e.getMessage());
+        }
+    }
+
+    private static void createUsersFile(Path usersFilePath, String adminPassword) {
+        try {
+            // Generate salt for the admin password
+            String salt = generateSalt();
+    
+            // Hash the admin password with the salt
+            String hashedPassword = hashPassword(adminPassword, salt);
+    
+            // Write the admin user to the "users" file
+            String adminUser = "admin;" + salt + ";" + hashedPassword;
+            Files.write(usersFilePath, adminUser.getBytes(), StandardOpenOption.CREATE_NEW);
+            System.out.println("Created 'users' file with 'admin' user.");
+        } catch (IOException e) {
+            System.err.println("Error creating 'users' file: " + e.getMessage());
+            System.exit(1);
         }
     }
 
