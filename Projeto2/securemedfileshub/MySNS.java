@@ -1,6 +1,7 @@
 package com.securehub.securemedfileshub;
 
 import javax.crypto.Cipher;
+import java.util.Scanner;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
@@ -208,15 +209,65 @@ public class MySNS {
     // Handle -sc command processing
     private static void processScCommand(Path file, DataOutputStream dos, String doctorUsername, String patientUsername)
             throws Exception {
+    	Scanner scanner = new Scanner(System.in);
+    	
         KeyStore keystore = getKeyStore(doctorUsername + ".keystore", doctorUsername.toCharArray());
         SecretKey aesKey = generateAESKey();
         // byte[] encryptedFileBytes = encryptFile(Files.readAllBytes(file), aesKey);
 
         System.out.println("Fetching certificate with alias: " + patientUsername + "cert");
-        Certificate patienCertificate = keystore.getCertificate(patientUsername + "cert");
-        System.out.println("Certificate retrieved Successfully");
+        Certificate patientCertificate = keystore.getCertificate(patientUsername + "cert");
+        
+        if (patientCertificate == null) {
+            // Certificate not found in the keystore
+            System.out.println("Certificate not found for alias: " + patientUsername + "cert");
+            
+            System.out.println("Do you want to export and import the certificate? (yes/no)");
+            String choice = scanner.nextLine().trim().toLowerCase();
 
-        byte[] wrappedAesKey = wrapAESKey(aesKey, patienCertificate);
+            if ("yes".equals(choice)) {
+	            try {
+	                KeyStore key = getKeyStore(patientUsername + ".keystore", patientUsername.toCharArray());
+	
+	                FileInputStream fis = new FileInputStream(patientUsername + ".keystore");
+	                key.load(fis, patientUsername.toCharArray());
+	                fis.close();
+	
+	                // Export the certificate from the source keystore
+	                Certificate patientCert = key.getCertificate(patientUsername + "alias");
+	                if (patientCert == null) {
+	                    throw new RuntimeException("Certificate not found in patient keystore.");
+	                }
+	
+	                // Import the certificate into the current keystore
+	                keystore.setCertificateEntry(patientUsername + "cert", patientCert);
+	
+	                // Save the updated keystore
+	                FileOutputStream fos = new FileOutputStream(doctorUsername + ".keystore");
+	                keystore.store(fos, doctorUsername.toCharArray());
+	                fos.close();
+	
+	                System.out.println("Certificate imported into the keystore successfully.");
+	            } catch (Exception e) {
+	                e.printStackTrace();
+	                // Handle exceptions appropriately
+	            }
+            } else if ("no".equals(choice)) {
+            	return;
+            	System.exit(1);
+            	
+	        } else {
+	            // Handle the case where the user inputs an invalid choice
+	            System.out.println("Invalid choice. Please enter 'yes' or 'no'.");
+	            return;
+	        }
+            } else {
+	            // Certificate retrieved successfully
+	            System.out.println("Certificate retrieved successfully");
+	            // Proceed with your logic here, e.g., encrypt file using the retrieved certificate
+	            }
+        patientCertificate = keystore.getCertificate(patientUsername + "cert");
+        byte[] wrappedAesKey = wrapAESKey(aesKey, patientCertificate);
 
         sendEncryptedFile(dos, file.getFileName().toString(), file, wrappedAesKey);
     }
@@ -285,16 +336,21 @@ public class MySNS {
     // Client side: MySNS.java
     private static void processSaCommand(Path file, DataOutputStream dos, DataInputStream dis, String doctorUsername,
             String patientUsername) throws Exception {
+    	
+    	Scanner scanner = new Scanner(System.in);
+    	
         KeyStore keystore = getKeyStore(doctorUsername + ".keystore", doctorUsername.toCharArray());
 
         byte[] fileBytes = Files.readAllBytes(file);
 
         PrivateKey privateKey = (PrivateKey) keystore.getKey(doctorUsername + "alias", doctorUsername.toCharArray());
+        
+        
 
         byte[] signatureBytes = signFile(fileBytes, privateKey);
 
         sendSignedFile(dos, file.getFileName().toString(), Files.newInputStream(file), fileBytes.length, signatureBytes,
-                doctorUsername, patientUsername);
+                doctorUsername);
 
         dos.flush(); // Flush the DOS to send the file data immediately
     }
@@ -310,7 +366,7 @@ public class MySNS {
     // Sends the signed file and signature to the server
     private static void sendSignedFile(DataOutputStream dos, String fileName, InputStream fileStream, long fileSize,
             byte[] signatureBytes,
-            String doctorUsername, String patientUsername) throws IOException {
+            String doctorUsername) throws IOException {
         // Send the signed file to the server
         dos.writeUTF(fileName + ".assinado");
         dos.writeLong(fileSize);
@@ -330,6 +386,7 @@ public class MySNS {
             String patientUsername) throws Exception {
         System.out.println("Processing -se command...");
 
+        Scanner scanner = new Scanner(System.in);
         KeyStore keystore = getKeyStore(doctorUsername + ".keystore", doctorUsername.toCharArray());
 
         SecretKey aesKey = generateAESKey();
@@ -342,6 +399,59 @@ public class MySNS {
         System.out.println("Encrypted file bytes. Size: " + encryptedFileBytes.length);
 
         Certificate patientCertificate = keystore.getCertificate(patientUsername + "cert");
+        
+        
+        if (patientCertificate == null) {
+            // Certificate not found in the keystore
+            System.out.println("Certificate not found for alias: " + patientUsername + "cert");
+            
+            System.out.println("Do you want to export and import the certificate? (yes/no)");
+            String choice = scanner.nextLine().trim().toLowerCase();
+
+            if ("yes".equals(choice)) {
+	            try {
+	                KeyStore key = getKeyStore(patientUsername + ".keystore", patientUsername.toCharArray());
+	
+	                FileInputStream fis = new FileInputStream(patientUsername + ".keystore");
+	                key.load(fis, patientUsername.toCharArray());
+	                fis.close();
+	
+	                // Export the certificate from the source keystore
+	                Certificate patientCert = key.getCertificate(patientUsername + "alias");
+	                if (patientCert == null) {
+	                    throw new RuntimeException("Certificate not found in patient keystore.");
+	                }
+	
+	                // Import the certificate into the current keystore
+	                keystore.setCertificateEntry(patientUsername + "cert", patientCert);
+	
+	                // Save the updated keystore
+	                FileOutputStream fos = new FileOutputStream(doctorUsername + ".keystore");
+	                keystore.store(fos, doctorUsername.toCharArray());
+	                fos.close();
+	
+	                System.out.println("Certificate imported into the keystore successfully.");
+	            } catch (Exception e) {
+	                e.printStackTrace();
+	                // Handle exceptions appropriately
+	            }
+            } else if ("no".equals(choice)) {
+            	return;
+            	System.exit(1);
+            	
+	        } else {
+	            // Handle the case where the user inputs an invalid choice
+	            System.out.println("Invalid choice. Please enter 'yes' or 'no'.");
+	            return;
+	        }
+            } else {
+	            // Certificate retrieved successfully
+	            System.out.println("Certificate retrieved successfully");
+	            // Proceed with your logic here, e.g., encrypt file using the retrieved certificate
+	            }
+        
+        patientCertificate = keystore.getCertificate(patientUsername + "cert");
+        
         byte[] encryptedAesKey = encryptAESKey(aesKey, patientCertificate);
         System.out.println("Encrypted AES key. Size: " + encryptedAesKey.length);
 
