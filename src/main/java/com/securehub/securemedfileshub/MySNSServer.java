@@ -123,16 +123,18 @@ private static void handleScCommand(DataInputStream dis, DataOutputStream dos) t
 }
 
 private static void handleSaCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
+    
     int numberOfFiles = dis.readInt();
     String patientUsername = dis.readUTF();
 
     Path patientDirectory = Paths.get(patientUsername);
     Files.createDirectories(patientDirectory);
 
+    System.out.println("Received number of files: " + numberOfFiles+" from "+patientUsername+"... Starting to receive files.");
     for (int i = 0; i < numberOfFiles; i++) {
         String signedFileName = dis.readUTF();
         long signedFileSize = dis.readLong();
-        Path signedFilePath = patientDirectory.resolve(signedFileName);
+        Path signedFilePath = patientDirectory.resolve(signedFileName+".assinado");
         try (OutputStream fileOut = Files.newOutputStream(signedFilePath)) {
             byte[] buffer = new byte[4096];
             long bytesRead = 0;
