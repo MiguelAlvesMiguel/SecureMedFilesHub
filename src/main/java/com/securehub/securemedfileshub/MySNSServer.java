@@ -26,6 +26,8 @@ import java.util.Scanner;
 
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
+import javax.net.ssl.SSLServerSocket;
+import javax.net.ssl.SSLServerSocketFactory;
 
 
 public class MySNSServer {
@@ -36,33 +38,47 @@ public class MySNSServer {
     private static Map<String, String> users = new HashMap<>();
 
     public static void main(String[] args) throws IOException {
-        if (args.length != 1) {
-            System.err.println("Usage: java MySNSServer <port>");
+        if (args.length < 1 || args.length > 3) {
+            System.err.println("Usage: java MySNSServer <port> [<keystore_path> <keystore_password>]");
             return;
         }
-
+    
         userManager = new UserManager();
-
+    
         if (!userManager.setup()) {
             System.out.println("Server setup failed. Exiting.");
             System.exit(1);
         }
-
+    
         int port = Integer.parseInt(args[0]);
-
+    
         System.out.println("Server listening on port " + port);
-
-        try (ServerSocket serverSocket = new ServerSocket(port)) {
-            while (true) {
-                try (Socket clientSocket = serverSocket.accept()) {
-                    System.out.println("Client connected from " + clientSocket.getInetAddress());
-                    processClient(clientSocket);
-                } catch (IOException e) {
-                    System.err.println("Error handling client connection: " + e.getMessage());
-                }
+    
+        if (args.length == 3) {
+            // Set the keystore properties
+            System.setProperty("javax.net.ssl.keyStore", args[1]);
+            System.setProperty("javax.net.ssl.keyStorePassword", args[2]);
+            System.out.println("Keystore path: " + args[1]);
+            System.out.println("Keystore password: " + args[2]);
+        } else {
+            System.out.println("Keystore properties not provided. Using default values.");
+        }
+    
+        SSLServerSocketFactory ssf = (SSLServerSocketFactory) SSLServerSocketFactory.getDefault();
+        SSLServerSocket serverSocket = (SSLServerSocket) ssf.createServerSocket(port);
+    
+        System.out.println("SSL server socket created.");
+    
+        while (true) {
+            try {
+                System.out.println("Waiting for client connection...");
+                Socket clientSocket = serverSocket.accept();
+                System.out.println("Client connected from " + clientSocket.getInetAddress());
+                processClient(clientSocket);
+            } catch (IOException e) {
+                System.err.println("Error handling client connection: " + e.getMessage());
+                e.printStackTrace();
             }
-        } catch (IOException e) {
-            System.err.println("Server could not start: " + e.getMessage());
         }
     }
 
@@ -176,7 +192,7 @@ public class MySNSServer {
             dos.writeUTF("Error: Failed to create user.");
         }
     }
-    
+
 // Code snippet for handling -sc command inside processClient method
 private static void handleScCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
     int numberOfFiles = dis.readInt();

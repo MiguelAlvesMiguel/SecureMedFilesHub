@@ -2,6 +2,11 @@ package com.securehub.securemedfileshub;
 
 import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
+import javax.security.auth.x500.X500Principal;
+
 import java.io.*;
 import java.net.Socket;
 import java.nio.file.Files;
@@ -18,10 +23,10 @@ import java.security.spec.InvalidKeySpecException;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.util.Enumeration;
 
 public class MySNS {
-
     public static void main(String[] args) {
         if (args.length < 5) {
             printUsage();
@@ -36,52 +41,84 @@ public class MySNS {
         String username = null;
         String password = null;
 
-        switch (command) {
-            case "-au":
-                if (args.length != 6) {
-                    System.err.println("Invalid arguments for -au command.");
-                    printUsage();
-                    return;
-                }
-                username = args[3];
-                password = args[4];
-                String certificateFile = args[5];
-                createUser(serverAddress, serverPort, username, password, certificateFile, userManager);
-                return;
-            case "-sc":
-            case "-sa":
-            case "-se":
-                if (args.length < 9) {
-                    System.err.println("Invalid arguments for " + command + " command.");
-                    printUsage();
-                    return;
-                }
-                username = args[4];
-                password = args[6];
-                if (!userManager.authenticateUser(username, password)) {
-                    System.err.println("Authentication failed. Invalid username or password.");
-                    return;
-                }
-                break;
-            case "-g":
-                if (args.length < 7) {
-                    System.err.println("Invalid arguments for -g command.");
-                    printUsage();
-                    return;
-                }
-                username = args[4];
-                password = args[5];
+        System.setProperty("javax.net.ssl.trustStore", "truststore.client");
+        System.setProperty("javax.net.ssl.trustStorePassword", "server");
 
-                if (!userManager.authenticateUser(username, password)) {
-                    System.err.println("Authentication failed. Invalid username or password.");
+        System.out.println("Truststore path: truststore.client");
+        System.out.println("Truststore password: server");
+
+        SSLSocketFactory sf = (SSLSocketFactory) SSLSocketFactory.getDefault();
+        SSLSocket socket = null;
+        try {
+            System.out.println("Connecting to server: " + serverAddress + ":" + serverPort);
+            socket = (SSLSocket) sf.createSocket(serverAddress, serverPort);
+            System.out.println("Connected to server.");
+
+            // Verify the server's identity
+            SSLSession session = socket.getSession();
+            X509Certificate cert = (X509Certificate) session.getPeerCertificates()[0];
+            String subject = cert.getSubjectX500Principal().getName();
+            String issuer = cert.getIssuerX500Principal().getName();
+
+            System.out.println("Server Subject: " + subject);
+            System.out.println("Server Issuer: " + issuer);
+
+            // The hostname should be this CN=Server Oficial,OU=SecureFilesHub,O=SecureFilesHub,L=Lisboa,ST=Lisboa,C=PT
+            String hostname = "Server Oficial";
+            String cn = extractCN(subject);
+            if (!hostname.equals(cn)) {
+                throw new Exception("Server hostname does not match the certificate CN");
+            }
+
+            System.out.println("Server identity verified.");
+
+            switch (command) {
+                case "-au":
+                    if (args.length != 6) {
+                        System.err.println("Invalid arguments for -au command.");
+                        printUsage();
+                        return;
+                    }
+                    username = args[3];
+                    password = args[4];
+                    String certificateFile = args[5];
+                    createUser(serverAddress, serverPort, username, password, certificateFile, userManager);
                     return;
-                }
-                break;
-            default:
-                System.err.println("Invalid command: " + command);
-                printUsage();
-                return;
-        }
+                case "-sc":
+                case "-sa":
+                case "-se":
+                    if (args.length < 9) {
+                        System.err.println("Invalid arguments for " + command + " command.");
+                        printUsage();
+                        return;
+                    }
+                    username = args[4];
+                    password = args[6];
+                    if (!userManager.authenticateUser(username, password)) {
+                        System.err.println("Authentication failed. Invalid username or password.");
+                        return;
+                    }
+                    break;
+                case "-g":
+                    if (args.length < 7) {
+                        System.err.println("Invalid arguments for -g command.");
+                        printUsage();
+                        return;
+                    }
+                    username = args[4];
+                    password = args[5];
+
+                    if (!userManager.authenticateUser(username, password)) {
+                        System.err.println("Authentication failed. Invalid username or password.");
+                        return;
+                    }
+                    break;
+                default:
+                    System.err.println("Invalid command: " + command);
+                    printUsage();
+                    return;
+            }
+
 
         String serverResponse = "";
         String patientUsername = "";
@@ -102,7 +139,7 @@ public class MySNS {
         int nOfFilesMissing = 0;
         int nOfFilesReceived = 0;
 
-        try (Socket socket = new Socket(serverAddress, serverPort);
+        try (Socket socket2 = new Socket(serverAddress, serverPort);
                 DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
                 DataInputStream dis = new DataInputStream(socket.getInputStream())) {
             dos.writeUTF(command); // Send the command
@@ -212,8 +249,36 @@ public class MySNS {
             System.exit(1);
         }
 
+    } catch (Exception e) {
+        System.err.println("Error connecting to server: " + e.getMessage());
+        e.printStackTrace();
+        System.exit(1);
+    } finally {
+        if (socket != null) {
+            try {
+                socket.close();
+                System.out.println("Socket closed.");
+            } catch (IOException e) {
+                System.err.println("Error closing socket: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+    }
     }
 
+    private static String extractCN(String x500Name) {
+    X500Principal principal = new X500Principal(x500Name);
+    String cn = principal.getName(X500Principal.RFC2253);
+    int start = cn.indexOf("CN=");
+    if (start != -1) {
+        int end = cn.indexOf(",", start);
+        if (end == -1) {
+            end = cn.length();
+        }
+        return cn.substring(start + 3, end);
+    }
+    return null;
+}
     private static void printUsage() {
         System.out.println("Usage:");
         System.out.println("  mySNS -a <serverAddress>:<port> -au <username> <password> <certificateFile>");

@@ -6,6 +6,13 @@
     "configurations": [
         {
             "type": "java",
+            "name": "MySNS",
+            "request": "launch",
+            "mainClass": "com.securehub.securemedfileshub.MySNS",
+            "projectName": "securemedfileshub"
+        },
+        {
+            "type": "java",
             "name": "MySNSServer",
             "request": "launch",
             "mainClass": "com.securehub.securemedfileshub.MySNSServer",
