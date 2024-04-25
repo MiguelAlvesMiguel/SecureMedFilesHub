@@ -22,13 +22,50 @@ import javax.crypto.spec.PBEKeySpec;
 import java.nio.file.StandardCopyOption;
 
 public class UserManager {
-    private static final String USERS_FILE = "users";
+    private static final String USERS_FILE = "users.txt";
     private static final String MAC_FILE = "users.mac";
     private Map<String, User> users;
 
     public UserManager() {
         users = new HashMap<>();
         loadUsers();
+    }
+
+    // Function to setup file, which should create an admin user with the file if the file doesn't exist, and calculate the MAC if the MAC file doesn't exist.
+    // If the mac file exists, it should verify the MAC. If it's wrong a warning is shown and the function returns false.
+    // If the MAC is correct, the function returns true.
+    public boolean setup() {
+        try {
+            if (!macFileExists()) {
+                System.out.println("MAC file doesn't exist!");
+                try (Scanner scanner = new Scanner(System.in)) {
+                    System.out.print("Do you want to calculate the MAC for the users file? (yes/no): ");
+                    String answer = scanner.nextLine().trim().toLowerCase();
+                    while (!answer.equals("yes") && !answer.equals("no") && !answer.equals("y") && !answer.equals("n")) {
+                        System.out.print("Invalid answer. Do you want to calculate the MAC for the users file? (yes/no): ");
+                        answer = scanner.nextLine().trim().toLowerCase();
+                    }
+                    if (answer.equals("yes") || answer.equals("y")) {
+                        System.out.print("Enter the admin password: ");
+                        String adminPassword = scanner.nextLine();
+                        updateUsersMac(adminPassword);
+                        System.out.println("MAC calculated and stored successfully.");
+                    } else {
+                        System.out.println("Exiting the server.");
+                        return false;
+                    }
+                }
+            }
+
+            if (!verifyUsersMac()) {
+                System.out.println("Warning: MAC verification failed.");
+                return false;
+            }
+            return true;
+        } catch (IOException e) {
+            System.out.println("Error setting up the server: " + e.getMessage());
+            return false;
+        }
     }
 
     public void createUser(String username, String password, Path certificateFile) throws IOException {
@@ -75,44 +112,27 @@ public class UserManager {
                 }
             }
             reader.close();
-
-            if (!verifyUsersMac()) {
-                Scanner scanner = new Scanner(System.in);
-                boolean macVerified = false;
-                while (!macVerified) {
-                    System.out.print("Enter the admin password: ");
-                    String adminPassword = scanner.nextLine();
-
-                    User adminUser = users.get("admin");
-                    if (adminUser != null && authenticateUser("admin", adminPassword)) {
-                        updateUsersMac(adminPassword);
-                        macVerified = true;
-                    } else {
-                        System.out.println("MAC verification failed. Please try again.");
-                    }
-                }
-            }
         } catch (IOException e) {
             throw new RuntimeException("Error loading users: " + e.getMessage());
         }
     }
 
     private void createAdminUser() {
-        Scanner scanner = new Scanner(System.in);
-        System.out.print("Enter password for the 'admin' user: ");
-        String adminPassword = scanner.nextLine();
+        try (Scanner scanner = new Scanner(System.in)) {
+            System.out.print("Enter password for the 'admin' user: ");
+            String adminPassword = scanner.nextLine();
 
-        String salt = generateSalt();
-        String hashedPassword = hashPassword(adminPassword, salt);
+            String salt = generateSalt();
+            String hashedPassword = hashPassword(adminPassword, salt);
 
-        User adminUser = new User("admin", salt, hashedPassword);
-        users.put("admin", adminUser);
+            User adminUser = new User("admin", salt, hashedPassword);
+            users.put("admin", adminUser);
 
-        try {
-            saveUser(adminUser);
-            updateUsersMac(adminPassword);
-        } catch (IOException e) {
-            throw new RuntimeException("Error saving admin user or updating MAC: " + e.getMessage());
+            try {
+                saveUser(adminUser);
+            } catch (IOException e) {
+                throw new RuntimeException("Error saving admin user: " + e.getMessage());
+            }
         }
     }
 
@@ -132,9 +152,14 @@ public class UserManager {
         Files.copy(certificateFile, destinationFile, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    private boolean verifyUsersMac() throws IOException {
+    boolean macFileExists() {
+        return Files.exists(Paths.get(MAC_FILE));
+    }
+
+    boolean verifyUsersMac() throws IOException {
         Path macFilePath = Paths.get(MAC_FILE);
         if (!Files.exists(macFilePath)) {
+            System.out.println("Warning: MAC file does not exist.");
             return false;
         }
         String storedMac = new String(Files.readAllBytes(macFilePath)).trim();
@@ -142,10 +167,15 @@ public class UserManager {
         return storedMac.equals(currentMac);
     }
 
-    private void updateUsersMac(String adminPassword) throws IOException {
+    void updateUsersMac(String adminPassword) throws IOException {
         User adminUser = users.get("admin");
         if (adminUser == null) {
             throw new RuntimeException("Admin user not found.");
+        }
+
+        String hashedPassword = hashPassword(adminPassword, adminUser.getSalt());
+        if (!hashedPassword.equals(adminUser.getHashedPassword())) {
+            throw new IllegalArgumentException("Invalid admin password.");
         }
 
         String currentMac = calculateUsersMac();

@@ -1,0 +1,3 @@
+#*.keystore
+/target/
+src\main\java\com\securehub\securemedfileshub\src\main\java\com\securehub\securemedfileshub

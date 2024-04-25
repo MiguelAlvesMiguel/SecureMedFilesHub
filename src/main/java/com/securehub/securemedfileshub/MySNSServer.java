@@ -1,50 +1,52 @@
 package com.securehub.securemedfileshub;
 
-import java.util.Scanner;
-import javax.crypto.KeyGenerator;
-
-import javax.crypto.SecretKeyFactory;
-import java.util.Base64;
-
-import java.io.*;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.file.*;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.SecureRandom;
-import java.security.spec.KeySpec;
-
-import java.security.spec.InvalidKeySpecException;
-
 import java.security.NoSuchAlgorithmException;
-import java.security.PrivateKey;
-import java.security.cert.CertificateException;
+import java.security.SecureRandom;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.KeySpec;
+import java.util.Base64;
 import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Scanner;
 
-import javax.crypto.Cipher;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
+import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
-import java.util.Map;
-import java.util.HashMap;
-import java.nio.file.StandardCopyOption;
 
 public class MySNSServer {
-    private static final String USERS_FILE = "users";
+
     private static final String CERTIFICATES_DIR = "certificates";
     private static UserManager userManager;
 
     private static Map<String, String> users = new HashMap<>();
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
         if (args.length != 1) {
             System.err.println("Usage: java MySNSServer <port>");
             return;
         }
 
         userManager = new UserManager();
+
+        if (!userManager.setup()) {
+            System.out.println("Server setup failed. Exiting.");
+            System.exit(1);
+        }
 
         int port = Integer.parseInt(args[0]);
 
@@ -63,7 +65,7 @@ public class MySNSServer {
             System.err.println("Server could not start: " + e.getMessage());
         }
     }
- 
+
     private static String generateSalt() {
         // Generate a random salt
         SecureRandom random = new SecureRandom();
