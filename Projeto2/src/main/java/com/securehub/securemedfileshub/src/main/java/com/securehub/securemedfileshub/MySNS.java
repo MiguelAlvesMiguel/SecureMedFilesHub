@@ -1,27 +1,23 @@
 package com.securehub.securemedfileshub;
 
-import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
-import javax.crypto.SecretKey;
+import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
-import java.util.Scanner;
 import java.io.*;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.*;
+import java.security.cert.Certificate;
+import java.util.Scanner;
+
+import java.security.spec.KeySpec;
+import javax.crypto.spec.PBEKeySpec;
+import java.util.Base64;
+import java.security.spec.InvalidKeySpecException;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.security.Key;
-import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.PrivateKey;
-import java.security.PublicKey;
-import java.security.Signature;
-import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
-import java.util.Arrays;
 import java.util.Enumeration;
 
 public class MySNS {
@@ -37,14 +33,72 @@ public class MySNS {
              * mySNS -a <serverAddress> -u <username do utente> -g {<filenames>}
              * 
              */
-    public static void main(String[] args) {
-        try {
+   
+             public static void main(String[] args) {
+                if (args.length < 5) {
+                    printUsage();
+                    return;
+                }
+
+                UserManager userManager = new UserManager();
+        
+                String serverAddress = args[1].split(":")[0];
+                int serverPort = Integer.parseInt(args[1].split(":")[1]);
+                String command = args[2];
+                String username = null;
+                String password = null;
+        
+                switch (command) {
+                    case "-au":
+                        if (args.length != 6) {
+                            System.err.println("Invalid arguments for -au command.");
+                            printUsage();
+                            return;
+                        }
+                        username = args[3];
+                        password = args[4];
+                        String certificateFile = args[5];
+                        createUser(serverAddress, serverPort, username, password, certificateFile, userManager);
+                        return;
+                    case "-sc":
+                    case "-sa":
+                    case "-se":
+                        if (args.length < 9) {
+                            System.err.println("Invalid arguments for " + command + " command.");
+                            printUsage();
+                            return;
+                        }
+                        username = args[4];
+                        password = args[6];
+                        if (!userManager.authenticateUser(username, password)) {
+                            System.err.println("Authentication failed. Invalid username or password.");
+                            return;
+                        }
+                        break;
+                    case "-g":
+                        if (args.length < 7) {
+                            System.err.println("Invalid arguments for -g command.");
+                            printUsage();
+                            return;
+                        }
+                        username = args[4];
+                        password = args[5];
+
+                        if (!userManager.authenticateUser(username, password)) {
+                            System.err.println("Authentication failed. Invalid username or password.");
+                            return;
+                        }
+                        break;
+                    default:
+                        System.err.println("Invalid command: " + command);
+                        printUsage();
+                        return;
+                }
           
-            // Argument validation and setup...
-            String serverAddress = args[1].split(":")[0];
-            int serverPort = Integer.parseInt(args[1].split(":")[1]);
+    
+    
+    
             String serverResponse = "";
-            String command = "";
             String patientUsername = "";
             String doctorUsername = "";
 
@@ -167,14 +221,57 @@ public class MySNS {
                     System.out.println("Operation complete. " + nOfFilesSent + " files sent, " + nOfFilesAlreadyPresent
                             + " files were already present, and " + nOfFilesMissing + " files were missing.");
                 }
-            }
+            
         } catch (Exception e) {
             e.printStackTrace();
             System.exit(1);
         }
 
     }
+    private static void printUsage() {
+        System.out.println("Usage:");
+        System.out.println("  mySNS -a <serverAddress>:<port> -au <username> <password> <certificateFile>");
+        System.out.println("  mySNS -a <serverAddress>:<port> -sc -m <doctorUsername> -p <password> -u <patientUsername> {<filenames>}+");
+        System.out.println("  mySNS -a <serverAddress>:<port> -sa -m <doctorUsername> -p <password> -u <patientUsername> {<filenames>}+");
+        System.out.println("  mySNS -a <serverAddress>:<port> -se -m <doctorUsername> -p <password> -u <patientUsername> {<filenames>}+");
+        System.out.println("  mySNS -a <serverAddress>:<port> -g -u <patientUsername> -p <password> {<filenames>}+");
+    }
 
+   private static void createUser(String serverAddress, int serverPort, String username, String password,
+                                   String certificateFile, UserManager userManager) {
+        try (Socket socket = new Socket(serverAddress, serverPort);
+             DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+             DataInputStream dis = new DataInputStream(socket.getInputStream())) {
+
+            dos.writeUTF("-au");
+            dos.writeUTF(username);
+            dos.writeUTF(password);
+
+            byte[] certificateBytes = Files.readAllBytes(Paths.get(certificateFile));
+            dos.writeInt(certificateBytes.length);
+            dos.write(certificateBytes);
+
+            String response = dis.readUTF();
+            System.out.println(response);
+
+            if (response.startsWith("User created successfully")) {
+                userManager.createUser(username, password, Paths.get(certificateFile));
+            }
+        } catch (IOException e) {
+            System.err.println("Error creating user: " + e.getMessage());
+        }
+    }
+    private static String hashPassword(String password, String salt) {
+        try {
+            KeySpec spec = new PBEKeySpec(password.toCharArray(), salt.getBytes(), 10000, 256);
+            SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+            byte[] hashedBytes = factory.generateSecret(spec).getEncoded();
+            return Base64.getEncoder().encodeToString(hashedBytes);
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+            throw new RuntimeException("Error hashing password: " + e.getMessage());
+        }
+    }
+    
     private static int processGCommand(DataInputStream dis, DataOutputStream dos, String patientUsername,
             String[] filenames) throws IOException {
 

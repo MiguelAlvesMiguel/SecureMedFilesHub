@@ -1,10 +1,7 @@
 package com.securehub.securemedfileshub;
 
-//
-
 import java.util.Scanner;
 import javax.crypto.KeyGenerator;
-
 
 import javax.crypto.SecretKeyFactory;
 import java.util.Base64;
@@ -29,24 +26,27 @@ import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import javax.crypto.spec.PBEKeySpec;
+
+import java.util.Map;
+import java.util.HashMap;
+import java.nio.file.StandardCopyOption;
+
 public class MySNSServer {
     private static final String USERS_FILE = "users";
+    private static final String CERTIFICATES_DIR = "certificates";
+    private static UserManager userManager;
+
+    private static Map<String, String> users = new HashMap<>();
+
     public static void main(String[] args) {
         if (args.length != 1) {
             System.err.println("Usage: java MySNSServer <port>");
             return;
         }
-        int port = Integer.parseInt(args[0]);
 
-        // Check if the "users" file exists
-    Path usersFilePath = Paths.get(USERS_FILE);
-    if (!Files.exists(usersFilePath)) {
-        // Create the "users" file with the "admin" user
-        Scanner scanner = new Scanner(System.in);
-        System.out.print("Enter password for the 'admin' user: ");
-        String adminPassword = scanner.nextLine();
-        createUsersFile(usersFilePath, adminPassword);
-    }
+        userManager = new UserManager();
+
+        int port = Integer.parseInt(args[0]);
 
         System.out.println("Server listening on port " + port);
 
@@ -63,8 +63,7 @@ public class MySNSServer {
             System.err.println("Server could not start: " + e.getMessage());
         }
     }
-
-
+ 
     private static String generateSalt() {
         // Generate a random salt
         SecureRandom random = new SecureRandom();
