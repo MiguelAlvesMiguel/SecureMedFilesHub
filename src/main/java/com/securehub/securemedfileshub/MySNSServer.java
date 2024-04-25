@@ -107,7 +107,7 @@ public class MySNSServer {
     private static void processClient(Socket clientSocket) throws IOException {
         DataInputStream dis = new DataInputStream(clientSocket.getInputStream());
         DataOutputStream dos = new DataOutputStream(clientSocket.getOutputStream());
-    
+
         try {
             String command = dis.readUTF();
             switch (command) {
@@ -116,7 +116,7 @@ public class MySNSServer {
                     handleScCommand(dis, dos);
                     break;
                 case "-sa":
-                handleSaCommand(dis, dos);
+                    handleSaCommand(dis, dos);
                     break;
                 case "-se":
                     handleSeCommand(dis, dos);
@@ -124,15 +124,16 @@ public class MySNSServer {
                 case "-g":
                     handleGCommand(dis, dos);
                     break;
+                case "-au":
+                    handleAuCommand(dis, dos);
+                    break;
                 default:
                     System.err.println("Unknown command: " + command);
                     dos.writeUTF("Error: Unknown command");
                     break;
             }
-            //send end response to client
-
+            // send end response to client
             dos.writeUTF("END");
-        
         } catch (Exception e) {
             System.err.println("Error processing client request: " + e.getMessage());
             e.printStackTrace();
@@ -141,6 +142,38 @@ public class MySNSServer {
         } finally {
             dis.close();
             dos.close();
+        }
+    }
+
+    private static void handleAuCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
+        String username = dis.readUTF();
+        String password = dis.readUTF();
+    
+        try {
+            // Read the certificate file
+            int certificateLength = dis.readInt();
+            byte[] certificateBytes = new byte[certificateLength];
+            dis.readFully(certificateBytes);
+    
+            // Save the certificate file
+            Path certificateDir = Paths.get(CERTIFICATES_DIR);
+            Files.createDirectories(certificateDir);
+            Path certificateFile = certificateDir.resolve(username + ".cer");
+            Files.write(certificateFile, certificateBytes, StandardOpenOption.CREATE_NEW);
+    
+            userManager.createUser(username, password, certificateFile);
+            // Create a directory for the user
+            Path userDir = Paths.get(username);
+            Files.createDirectories(userDir);
+            dos.writeUTF("User created successfully.");
+        } catch (EOFException e) {
+            System.err.println("Error reading certificate file: " + e.getMessage());
+            dos.writeUTF("Error: Failed to read certificate file.");
+        } catch (IllegalArgumentException e) {
+            dos.writeUTF("Error: " + e.getMessage());
+        } catch (IOException e) {
+            System.err.println("Error creating user: " + e.getMessage());
+            dos.writeUTF("Error: Failed to create user.");
         }
     }
     
@@ -472,15 +505,6 @@ private static void handleGCommand(DataInputStream dis, DataOutputStream dos) th
     dos.flush();
 }
 
-//Helper
-private static void printKeystoreAliases(KeyStore keystore) throws Exception {
-    System.out.println("Keystore contains the following aliases:");
-    Enumeration<String> aliases = keystore.aliases();
-    while (aliases.hasMoreElements()) {
-        String alias = aliases.nextElement();
-        System.out.println("Alias in keystore: " + alias);
-    }
-}
 }
 
 

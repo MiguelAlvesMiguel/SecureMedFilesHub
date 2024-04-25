@@ -21,262 +21,243 @@ import java.security.cert.CertificateException;
 import java.util.Enumeration;
 
 public class MySNS {
-  /*
-             * O cliente pode ser utilizado com as seguintes opções na linha de comandos:
-             * [0] [1] [2] [3] [4] [5] [6] [7] ...
-             * mySNS -a <serverAddress> -m <username do médico> -u <username do utente> -sc
-             * {<filenames>}+
-             * mySNS -a <serverAddress> -m <username do médico>-u <username do utente> -sa
-             * {<filenames>}+
-             * mySNS -a <serverAddress> -m <username do médico> -u <username do utente> -se
-             * {<filenames>}+
-             * mySNS -a <serverAddress> -u <username do utente> -g {<filenames>}
-             * 
-             */
-   
-             public static void main(String[] args) {
-                if (args.length < 5) {
+
+    public static void main(String[] args) {
+        if (args.length < 5) {
+            printUsage();
+            return;
+        }
+
+        UserManager userManager = new UserManager();
+
+        String serverAddress = args[1].split(":")[0];
+        int serverPort = Integer.parseInt(args[1].split(":")[1]);
+        String command = args[2];
+        String username = null;
+        String password = null;
+
+        switch (command) {
+            case "-au":
+                if (args.length != 6) {
+                    System.err.println("Invalid arguments for -au command.");
                     printUsage();
                     return;
                 }
-
-                UserManager userManager = new UserManager();
-        
-                String serverAddress = args[1].split(":")[0];
-                int serverPort = Integer.parseInt(args[1].split(":")[1]);
-                String command = args[2];
-                String username = null;
-                String password = null;
-        
-                switch (command) {
-                    case "-au":
-                        if (args.length != 6) {
-                            System.err.println("Invalid arguments for -au command.");
-                            printUsage();
-                            return;
-                        }
-                        username = args[3];
-                        password = args[4];
-                        String certificateFile = args[5];
-                        createUser(serverAddress, serverPort, username, password, certificateFile, userManager);
-                        return;
-                    case "-sc":
-                    case "-sa":
-                    case "-se":
-                        if (args.length < 9) {
-                            System.err.println("Invalid arguments for " + command + " command.");
-                            printUsage();
-                            return;
-                        }
-                        username = args[4];
-                        password = args[6];
-                        if (!userManager.authenticateUser(username, password)) {
-                            System.err.println("Authentication failed. Invalid username or password.");
-                            return;
-                        }
-                        break;
-                    case "-g":
-                        if (args.length < 7) {
-                            System.err.println("Invalid arguments for -g command.");
-                            printUsage();
-                            return;
-                        }
-                        username = args[4];
-                        password = args[5];
-
-                        if (!userManager.authenticateUser(username, password)) {
-                            System.err.println("Authentication failed. Invalid username or password.");
-                            return;
-                        }
-                        break;
-                    default:
-                        System.err.println("Invalid command: " + command);
-                        printUsage();
-                        return;
+                username = args[3];
+                password = args[4];
+                String certificateFile = args[5];
+                createUser(serverAddress, serverPort, username, password, certificateFile, userManager);
+                return;
+            case "-sc":
+            case "-sa":
+            case "-se":
+                if (args.length < 9) {
+                    System.err.println("Invalid arguments for " + command + " command.");
+                    printUsage();
+                    return;
                 }
-          
-    
-    
-    
-            String serverResponse = "";
-            String patientUsername = "";
-            String doctorUsername = "";
+                username = args[4];
+                password = args[6];
+                if (!userManager.authenticateUser(username, password)) {
+                    System.err.println("Authentication failed. Invalid username or password.");
+                    return;
+                }
+                break;
+            case "-g":
+                if (args.length < 7) {
+                    System.err.println("Invalid arguments for -g command.");
+                    printUsage();
+                    return;
+                }
+                username = args[4];
+                password = args[5];
 
-            // Se for -g é diferente
-            if (args[4].equals("-g")) {
-                command = args[4];
-                patientUsername = args[3];
+                if (!userManager.authenticateUser(username, password)) {
+                    System.err.println("Authentication failed. Invalid username or password.");
+                    return;
+                }
+                break;
+            default:
+                System.err.println("Invalid command: " + command);
+                printUsage();
+                return;
+        }
+
+        String serverResponse = "";
+        String patientUsername = "";
+        String doctorUsername = "";
+
+        // Se for -g é diferente
+        if (args[4].equals("-g")) {
+            command = args[4];
+            patientUsername = args[3];
+        } else {
+            command = args[6];
+            doctorUsername = args[3];
+            patientUsername = args[5];
+        }
+
+        int nOfFilesSent = 0;
+        int nOfFilesAlreadyPresent = 0;
+        int nOfFilesMissing = 0;
+        int nOfFilesReceived = 0;
+
+        try (Socket socket = new Socket(serverAddress, serverPort);
+                DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+                DataInputStream dis = new DataInputStream(socket.getInputStream())) {
+            dos.writeUTF(command); // Send the command
+
+            // Process files based on the command
+            int numberOfFiles = 0;
+
+            if (command.equals("-g")) {
+                numberOfFiles = args.length - 5;
             } else {
-                command = args[6];
-                doctorUsername = args[3];
-                patientUsername = args[5];
+                numberOfFiles = args.length - 7;
+            }
+            System.out.println("Sending/receiving number of files: " + (numberOfFiles));
+            // 1
+            dos.writeInt(numberOfFiles); // Send the number of files to the server
+
+            // Send the usernames before the main file loop:
+            switch (command) {
+                case "-sc":
+                    dos.writeUTF(patientUsername);
+                    break;
+                case "-sa":
+                    dos.writeUTF(patientUsername);
+                    break;
+                case "-se":
+                    dos.writeUTF(patientUsername);
+                    break;
+                case "-g":
+                    System.out.println("Sending patient username: " + patientUsername);
+                    dos.writeUTF(patientUsername); // 2
+                    break;
+                default:
+                    System.err.println("Unknown command: " + command);
+                    dos.writeUTF("Error: Unknown command");
+                    break;
             }
 
-            int nOfFilesSent = 0;
-            int nOfFilesAlreadyPresent = 0;
-            int nOfFilesMissing = 0;
-            int nOfFilesReceived = 0;
-
-            try (Socket socket = new Socket(serverAddress, serverPort);
-                    DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-                    DataInputStream dis = new DataInputStream(socket.getInputStream())) {
-                dos.writeUTF(command); // Send the command
-
-                // Process files based on the command
-                int numberOfFiles = 0;
-
-                if (command.equals("-g")) {
-                    numberOfFiles = args.length - 5;
+            int idxOfFirstFile = 7;
+            if ("-g".equals(command)) {
+                command = args[4];
+                patientUsername = args[3];
+                String[] filenames = new String[args.length - 5];
+                System.arraycopy(args, 5, filenames, 0, filenames.length);
+                if (filenames.length > 0) {
+                    nOfFilesReceived = processGCommand(dis, dos, patientUsername, filenames);
+                    System.out.println("Operation complete. Number of files received: " + nOfFilesReceived + ".");
+                    dos.flush();
                 } else {
-                    numberOfFiles = args.length - 7;
+                    System.out.println("No files specified for the -g command.");
                 }
-                System.out.println("Sending/receiving number of files: " + (numberOfFiles));
-                // 1
-                dos.writeInt(numberOfFiles); // Send the number of files to the server
 
-                // Send the usernames before the main file loop:
-                switch (command) {
-                    case "-sc":
-                        dos.writeUTF(patientUsername);
-                        break;
-                    case "-sa":
-                        dos.writeUTF(patientUsername);
-                        break;
-                    case "-se":
-                        dos.writeUTF(patientUsername);
-                        break;
-                    case "-g":
-                        System.out.println("Sending patient username: " + patientUsername);
-                        dos.writeUTF(patientUsername); // 2
-                        break;
-                    default:
+            } else {
+                for (int i = idxOfFirstFile; i < args.length; i++) {
+                    System.out.println("Processing file: " + args[i]);
+                    Path file = Paths.get(args[i]);
+
+                    if (!Files.exists(file)) {
+                        System.err.println("File not found in the client: " + file);
+                        nOfFilesMissing++;
+                        continue;
+                    }
+                    // file exists
+                    System.out.println("File exists in the client: " + file);
+
+                    if ("-sc".equals(command)) {
+                        processScCommand(file, dos, doctorUsername, patientUsername);
+                    } else if ("-sa".equals(command)) {
+                        processSaCommand(file, dos, dis, doctorUsername,
+                                patientUsername);
+                    } else if ("-se".equals(command)) {
+                        processSeCommand(file, dos, dis, doctorUsername,
+                                patientUsername);
+                    } else {
                         System.err.println("Unknown command: " + command);
                         dos.writeUTF("Error: Unknown command");
-                        break;
-                }
-
-                int idxOfFirstFile = 7;
-                if ("-g".equals(command)) {
-                    command = args[4];
-                    patientUsername = args[3];
-                    String[] filenames = new String[args.length - 5];
-                    System.arraycopy(args, 5, filenames, 0, filenames.length);
-                    if (filenames.length > 0) {
-                        nOfFilesReceived = processGCommand(dis, dos, patientUsername, filenames);
-                        System.out.println("Operation complete. Number of files received: " + nOfFilesReceived + ".");
-                        dos.flush();
-                    } else {
-                        System.out.println("No files specified for the -g command.");
+                        continue;
                     }
 
-                } else {
-                    for (int i = idxOfFirstFile; i < args.length; i++) {
-                        System.out.println("Processing file: " + args[i]);
-                        Path file = Paths.get(args[i]);
-
-                        if (!Files.exists(file)) {
-                            System.err.println("File not found in the client: " + file);
-                            nOfFilesMissing++;
-                            continue;
-                        }
-                        //file exists
-                        System.out.println("File exists in the client: " + file);
-
-                        if ("-sc".equals(command)) {
-                            processScCommand(file, dos, doctorUsername, patientUsername);
-                        } else if ("-sa".equals(command)) {
-                            processSaCommand(file, dos, dis, doctorUsername,
-                                    patientUsername);
-                        } else if ("-se".equals(command)) {
-                            processSeCommand(file, dos, dis, doctorUsername,
-                                    patientUsername);
-                        } else {
-                            System.err.println("Unknown command: " + command);
-                            dos.writeUTF("Error: Unknown command");
-                            continue;
-                        }
-
-                        // resolver bug
-                        if (!"-g".equals(command)) {
-                            serverResponse = dis.readUTF();
-                            System.out.println("Resposta server dps do processCommand: " + serverResponse); // Print the
-                        } // server's response
-
-                        if (serverResponse.startsWith("Error:"))
-                            nOfFilesAlreadyPresent++;
-                        else
-                            nOfFilesSent++;
-
-                    }
-                }
-
-                if (!"-g".equals(command)) {
-                    try {
+                    // resolver bug
+                    if (!"-g".equals(command)) {
                         serverResponse = dis.readUTF();
-                        System.out.println("Resposta server dps do loop: " + serverResponse); // Print the server's
-                                                                                              // response
-                    } catch (EOFException e) {
-                        System.out.println("All Done");
-                    }
-                    System.out.println("Operation complete. " + nOfFilesSent + " files sent, " + nOfFilesAlreadyPresent
-                            + " files were already present, and " + nOfFilesMissing + " files were missing.");
+                        System.out.println("Resposta server dps do processCommand: " + serverResponse); // Print the
+                    } // server's response
+
+                    if (serverResponse.startsWith("Error:"))
+                        nOfFilesAlreadyPresent++;
+                    else
+                        nOfFilesSent++;
+
                 }
-            
+            }
+
+            if (!"-g".equals(command)) {
+                try {
+                    serverResponse = dis.readUTF();
+                    System.out.println("Resposta server dps do loop: " + serverResponse); // Print the server's
+                                                                                          // response
+                } catch (EOFException e) {
+                    System.out.println("All Done");
+                }
+                System.out.println("Operation complete. " + nOfFilesSent + " files sent, " + nOfFilesAlreadyPresent
+                        + " files were already present, and " + nOfFilesMissing + " files were missing.");
+            }
+
         } catch (Exception e) {
             e.printStackTrace();
             System.exit(1);
         }
 
     }
+
     private static void printUsage() {
         System.out.println("Usage:");
         System.out.println("  mySNS -a <serverAddress>:<port> -au <username> <password> <certificateFile>");
-        System.out.println("  mySNS -a <serverAddress>:<port> -sc -m <doctorUsername> -p <password> -u <patientUsername> {<filenames>}+");
-        System.out.println("  mySNS -a <serverAddress>:<port> -sa -m <doctorUsername> -p <password> -u <patientUsername> {<filenames>}+");
-        System.out.println("  mySNS -a <serverAddress>:<port> -se -m <doctorUsername> -p <password> -u <patientUsername> {<filenames>}+");
+        System.out.println(
+                "  mySNS -a <serverAddress>:<port> -sc -m <doctorUsername> -p <password> -u <patientUsername> {<filenames>}+");
+        System.out.println(
+                "  mySNS -a <serverAddress>:<port> -sa -m <doctorUsername> -p <password> -u <patientUsername> {<filenames>}+");
+        System.out.println(
+                "  mySNS -a <serverAddress>:<port> -se -m <doctorUsername> -p <password> -u <patientUsername> {<filenames>}+");
         System.out.println("  mySNS -a <serverAddress>:<port> -g -u <patientUsername> -p <password> {<filenames>}+");
     }
 
-   private static void createUser(String serverAddress, int serverPort, String username, String password,
-                                   String certificateFile, UserManager userManager) {
+    private static void createUser(String serverAddress, int serverPort, String username, String password,
+            String certificateFile, UserManager userManager) {
         try (Socket socket = new Socket(serverAddress, serverPort);
-             DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-             DataInputStream dis = new DataInputStream(socket.getInputStream())) {
+                DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+                DataInputStream dis = new DataInputStream(socket.getInputStream())) {
 
             dos.writeUTF("-au");
             dos.writeUTF(username);
             dos.writeUTF(password);
 
-            byte[] certificateBytes = Files.readAllBytes(Paths.get(certificateFile));
+            Path certificatePath = Paths.get(certificateFile);
+            if (!Files.exists(certificatePath)) {
+                System.err.println("Certificate file not found: " + certificateFile);
+                return;
+            }
+
+            byte[] certificateBytes = Files.readAllBytes(certificatePath);
             dos.writeInt(certificateBytes.length);
             dos.write(certificateBytes);
+            dos.flush();
 
             String response = dis.readUTF();
             System.out.println(response);
 
-            if (response.startsWith("User created successfully")) {
-                userManager.createUser(username, password, Paths.get(certificateFile));
-            }
         } catch (IOException e) {
             System.err.println("Error creating user: " + e.getMessage());
         }
     }
-    private static String hashPassword(String password, String salt) {
-        try {
-            KeySpec spec = new PBEKeySpec(password.toCharArray(), salt.getBytes(), 10000, 256);
-            SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
-            byte[] hashedBytes = factory.generateSecret(spec).getEncoded();
-            return Base64.getEncoder().encodeToString(hashedBytes);
-        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
-            throw new RuntimeException("Error hashing password: " + e.getMessage());
-        }
-    }
-    
+
     private static int processGCommand(DataInputStream dis, DataOutputStream dos, String patientUsername,
             String[] filenames) throws IOException {
 
-             
-    	
         int nOfFilesReceived = 0;
         for (String filename : filenames) {
             System.out.println("Requesting file: " + filename);
@@ -308,7 +289,6 @@ public class MySNS {
 
         return nOfFilesReceived;
     }
-
 
     // Wraps the AES key with the public RSA key
     private static byte[] wrapAESKey(SecretKey aesKey, Certificate cert) throws Exception {
@@ -366,7 +346,7 @@ public class MySNS {
         sendFileChunk(dos, fileBytes);
 
         // Send the signature
-        //Signature filename: <filename>.assinatura.<doctorUsername>
+        // Signature filename: <filename>.assinatura.<doctorUsername>
         dos.writeUTF(file.getFileName().toString() + ".assinatura." + doctorUsername);
         dos.writeInt(signatureBytes.length);
         dos.write(signatureBytes);
@@ -382,11 +362,10 @@ public class MySNS {
         return signature.sign();
     }
 
-   
     private static void processScCommand(Path file, DataOutputStream dos, String doctorUsername, String patientUsername)
             throws Exception {
 
-                Scanner scanner = new Scanner(System.in);
+        Scanner scanner = new Scanner(System.in);
 
         KeyStore keystore = getKeyStore(doctorUsername + ".keystore", doctorUsername.toCharArray());
         SecretKey aesKey = generateAESKey();
@@ -396,52 +375,53 @@ public class MySNS {
         if (patientCertificate == null) {
             // Certificate not found in the keystore
             System.out.println("Certificate not found for alias: " + patientUsername + "cert");
-            
+
             System.out.println("Do you want to export and import the certificate? (yes/no)");
             String choice = scanner.nextLine().trim().toLowerCase();
 
             if ("yes".equals(choice)) {
-	            try {
-	                KeyStore key = getKeyStore(patientUsername + ".keystore", patientUsername.toCharArray());
-	
-	                FileInputStream fis = new FileInputStream(patientUsername + ".keystore");
-	                key.load(fis, patientUsername.toCharArray());
-	                fis.close();
-	
-	                // Export the certificate from the source keystore
-	                Certificate patientCert = key.getCertificate(patientUsername + "alias");
-	                if (patientCert == null) {
-	                    throw new RuntimeException("Certificate not found in patient keystore.");
-	                }
-	
-	                // Import the certificate into the current keystore
-	                keystore.setCertificateEntry(patientUsername + "cert", patientCert);
-	
-	                // Save the updated keystore
-	                FileOutputStream fos = new FileOutputStream(doctorUsername + ".keystore");
-	                keystore.store(fos, doctorUsername.toCharArray());
-	                fos.close();
-	
-	                System.out.println("Certificate imported into the keystore successfully.");
-	            } catch (Exception e) {
-	                e.printStackTrace();
-	                // Handle exceptions appropriately
-	            }
+                try {
+                    KeyStore key = getKeyStore(patientUsername + ".keystore", patientUsername.toCharArray());
+
+                    FileInputStream fis = new FileInputStream(patientUsername + ".keystore");
+                    key.load(fis, patientUsername.toCharArray());
+                    fis.close();
+
+                    // Export the certificate from the source keystore
+                    Certificate patientCert = key.getCertificate(patientUsername + "alias");
+                    if (patientCert == null) {
+                        throw new RuntimeException("Certificate not found in patient keystore.");
+                    }
+
+                    // Import the certificate into the current keystore
+                    keystore.setCertificateEntry(patientUsername + "cert", patientCert);
+
+                    // Save the updated keystore
+                    FileOutputStream fos = new FileOutputStream(doctorUsername + ".keystore");
+                    keystore.store(fos, doctorUsername.toCharArray());
+                    fos.close();
+
+                    System.out.println("Certificate imported into the keystore successfully.");
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    // Handle exceptions appropriately
+                }
             } else if ("no".equals(choice)) {
-            	System.exit(1);
+                System.exit(1);
                 return;
-            	
-	        } else {
-	            // Handle the case where the user inputs an invalid choice
-	            System.out.println("Invalid choice. Please enter 'yes' or 'no'.");
-	            return;
-	        }
+
             } else {
-	            // Certificate retrieved successfully
-	            System.out.println("Certificate retrieved successfully");
-	            // Proceed with your logic here, e.g., encrypt file using the retrieved certificate
-	            }
-                patientCertificate = keystore.getCertificate(patientUsername + "cert");
+                // Handle the case where the user inputs an invalid choice
+                System.out.println("Invalid choice. Please enter 'yes' or 'no'.");
+                return;
+            }
+        } else {
+            // Certificate retrieved successfully
+            System.out.println("Certificate retrieved successfully");
+            // Proceed with your logic here, e.g., encrypt file using the retrieved
+            // certificate
+        }
+        patientCertificate = keystore.getCertificate(patientUsername + "cert");
 
         System.out.println("Certificate retrieved Successfully");
         byte[] wrappedAesKey = wrapAESKey(aesKey, patientCertificate);
@@ -463,7 +443,7 @@ public class MySNS {
     private static void processSeCommand(Path file, DataOutputStream dos, DataInputStream dis, String doctorUsername,
             String patientUsername) throws Exception {
 
-                Scanner scanner = new Scanner(System.in);
+        Scanner scanner = new Scanner(System.in);
         System.out.println("Processing -se command...");
 
         KeyStore keystore = getKeyStore(doctorUsername + ".keystore", doctorUsername.toCharArray());
@@ -479,57 +459,56 @@ public class MySNS {
 
         Certificate patientCertificate = keystore.getCertificate(patientUsername + "cert");
 
-
         if (patientCertificate == null) {
             // Certificate not found in the keystore
             System.out.println("Certificate not found for alias: " + patientUsername + "cert");
-            
+
             System.out.println("Do you want to export and import the certificate? (yes/no)");
             String choice = scanner.nextLine().trim().toLowerCase();
 
             if ("yes".equals(choice)) {
-	            try {
-	                KeyStore key = getKeyStore(patientUsername + ".keystore", patientUsername.toCharArray());
-	
-	                FileInputStream fis = new FileInputStream(patientUsername + ".keystore");
-	                key.load(fis, patientUsername.toCharArray());
-	                fis.close();
-	
-	                // Export the certificate from the source keystore
-	                Certificate patientCert = key.getCertificate(patientUsername + "alias");
-	                if (patientCert == null) {
-	                    throw new RuntimeException("Certificate not found in patient keystore.");
-	                }
-	
-	                // Import the certificate into the current keystore
-	                keystore.setCertificateEntry(patientUsername + "cert", patientCert);
-	
-	                // Save the updated keystore
-	                FileOutputStream fos = new FileOutputStream(doctorUsername + ".keystore");
-	                keystore.store(fos, doctorUsername.toCharArray());
-	                fos.close();
-	
-	                System.out.println("Certificate imported into the keystore successfully.");
-	            } catch (Exception e) {
-	                e.printStackTrace();
-	                // Handle exceptions appropriately
-	            }
+                try {
+                    KeyStore key = getKeyStore(patientUsername + ".keystore", patientUsername.toCharArray());
+
+                    FileInputStream fis = new FileInputStream(patientUsername + ".keystore");
+                    key.load(fis, patientUsername.toCharArray());
+                    fis.close();
+
+                    // Export the certificate from the source keystore
+                    Certificate patientCert = key.getCertificate(patientUsername + "alias");
+                    if (patientCert == null) {
+                        throw new RuntimeException("Certificate not found in patient keystore.");
+                    }
+
+                    // Import the certificate into the current keystore
+                    keystore.setCertificateEntry(patientUsername + "cert", patientCert);
+
+                    // Save the updated keystore
+                    FileOutputStream fos = new FileOutputStream(doctorUsername + ".keystore");
+                    keystore.store(fos, doctorUsername.toCharArray());
+                    fos.close();
+
+                    System.out.println("Certificate imported into the keystore successfully.");
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    // Handle exceptions appropriately
+                }
             } else if ("no".equals(choice)) {
-            	System.exit(1);
+                System.exit(1);
                 return;
-            	
-            	
-	        } else {
-	            // Handle the case where the user inputs an invalid choice
-	            System.out.println("Invalid choice. Please enter 'yes' or 'no'.");
-	            return;
-	        }
+
             } else {
-	            // Certificate retrieved successfully
-	            System.out.println("Certificate retrieved successfully");
-	            // Proceed with your logic here, e.g., encrypt file using the retrieved certificate
-	            }
-        
+                // Handle the case where the user inputs an invalid choice
+                System.out.println("Invalid choice. Please enter 'yes' or 'no'.");
+                return;
+            }
+        } else {
+            // Certificate retrieved successfully
+            System.out.println("Certificate retrieved successfully");
+            // Proceed with your logic here, e.g., encrypt file using the retrieved
+            // certificate
+        }
+
         patientCertificate = keystore.getCertificate(patientUsername + "cert");
 
         byte[] encryptedAesKey = encryptAESKey(aesKey, patientCertificate);
