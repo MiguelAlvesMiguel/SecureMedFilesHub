@@ -28,11 +28,16 @@ public class UserManager {
 
     public UserManager() {
         users = new HashMap<>();
-        loadUsers();
+        setup();
     }
 
     public boolean setup() {
         try {
+            Path usersFilePath = Paths.get(USERS_FILE);
+            if (!Files.exists(usersFilePath)) {
+                createAdminUser();
+            }
+
             if (!macFileExists()) {
                 System.out.println("MAC file doesn't exist!");
                 try (Scanner scanner = new Scanner(System.in)) {
@@ -46,7 +51,7 @@ public class UserManager {
                     if (answer.equals("yes") || answer.equals("y")) {
                         System.out.print("Enter the admin password: ");
                         String adminPassword = scanner.nextLine();
-                        updateUsersMac(adminPassword);
+                        updateAdminMac(adminPassword);
                         System.out.println("MAC calculated and stored successfully.");
                     } else {
                         System.out.println("Exiting the server.");
@@ -59,6 +64,10 @@ public class UserManager {
                 System.out.println("FILE MIGHT BEEN TAMPERED WITH! Exiting the server: MAC verification failed. ");
                 return false;
             }
+
+            loadUsers();
+
+          
             return true;
         } catch (IOException e) {
             System.out.println("Error setting up the server: " + e.getMessage());
@@ -98,11 +107,6 @@ public class UserManager {
     }
 
     private void loadUsers() {
-        Path usersFilePath = Paths.get(USERS_FILE);
-        if (!Files.exists(usersFilePath)) {
-            createAdminUser();
-        }
-
         try {
             BufferedReader reader = new BufferedReader(new FileReader(USERS_FILE));
             String line;
@@ -172,7 +176,7 @@ public class UserManager {
         return storedMac.equals(currentMac);
     }
 
-    void updateUsersMac(String adminPassword) throws IOException {
+    void updateAdminMac(String adminPassword) throws IOException {
         User adminUser = users.get("admin");
         if (adminUser == null) {
             throw new RuntimeException("Admin user not found.");
