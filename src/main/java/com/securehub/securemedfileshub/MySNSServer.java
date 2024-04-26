@@ -95,10 +95,10 @@ public class MySNSServer {
                 // Compare the received hashed password with the stored hashed password
                 String storedHashedPassword = user.getHashedPassword();
                 if (Arrays.equals(receivedHashedPassword, Base64.getDecoder().decode(storedHashedPassword))) {
-                    dos.writeUTF("SUCCESS");
+                    dos.writeBoolean(true);
                     return true;
                 } else {
-                    dos.writeUTF("FAILURE! WRONG PASSWORD!");
+                    dos.writeBoolean(false);
                     return false;
                 }
             } else {

@@ -227,7 +227,7 @@ public class MySNS {
             int saltLength = dis.readInt();
             if (saltLength == -1) {
                 // User not found
-                System.err.println("Authentication failed. User not found.");
+                System.err.println("USER NOT FOUND!");
                 return false;
             }
             byte[] salt = new byte[saltLength];
@@ -244,8 +244,16 @@ public class MySNS {
             dos.flush();
     
             // Receive the authentication result from the server
-            String authResult = dis.readUTF();
-            return "SUCCESS".equals(authResult);
+            boolean authResult = dis.readBoolean();
+
+            if (authResult) {
+                System.out.println("Authentication successful.");
+            } else {
+                System.err.println("WRONG PASSWORD! Authentication failed.");
+            }
+
+
+            return authResult ;
         } catch (Exception e) {
             System.err.println("Error during authentication: " + e.getMessage());
             return false;
