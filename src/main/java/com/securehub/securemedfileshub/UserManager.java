@@ -31,9 +31,6 @@ public class UserManager {
         loadUsers();
     }
 
-    // Function to setup file, which should create an admin user with the file if the file doesn't exist, and calculate the MAC if the MAC file doesn't exist.
-    // If the mac file exists, it should verify the MAC. If it's wrong a warning is shown and the function returns false.
-    // If the MAC is correct, the function returns true.
     public boolean setup() {
         try {
             if (!macFileExists()) {
@@ -59,7 +56,7 @@ public class UserManager {
             }
 
             if (!verifyUsersMac()) {
-                System.out.println("Warning: MAC verification failed.");
+                System.out.println("FILE MIGHT BEEN TAMPERED WITH! Exiting the server: MAC verification failed. ");
                 return false;
             }
             return true;
@@ -69,27 +66,33 @@ public class UserManager {
         }
     }
 
-    public void createUser(String username, String password, Path certificateFile) throws IOException {
+    public void createUser(String username, byte[] salt, byte[] hashedPassword, Path certificateFile) throws IOException {
+        System.out.println("Maybe Creating user: " + username);
         if (users.containsKey(username)) {
-            throw new IllegalArgumentException("User already exists.");
+            throw new IllegalArgumentException("User already exists: " + username);
         }
+        System.out.println("User doesn't exist! Creating user: " + username);
 
-        String salt = generateSalt();
-        String hashedPassword = hashPassword(password, salt);
+        String saltString = Base64.getEncoder().encodeToString(salt);
+        String hashedPasswordString = Base64.getEncoder().encodeToString(hashedPassword);
 
-        User user = new User(username, salt, hashedPassword);
+        User user = new User(username, saltString, hashedPasswordString);
         users.put(username, user);
 
         saveUser(user);
         saveCertificate(username, certificateFile);
     }
 
-    public boolean authenticateUser(String username, String password) {
+    public boolean userExists(String username) {
+        return users.containsKey(username);
+    }
+
+    public boolean authenticateUser(String username, byte[] providedHashedPassword) {
         User user = users.get(username);
         System.out.println("Auth: User: " + user);
         if (user != null) {
-            String hashedPassword = hashPassword(password, user.getSalt());
-            return hashedPassword.equals(user.getHashedPassword());
+            String storedHashedPassword = user.getHashedPassword();
+            return storedHashedPassword.equals(Base64.getEncoder().encodeToString(providedHashedPassword));
         }
         return false;
     }

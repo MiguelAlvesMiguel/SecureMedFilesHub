@@ -6,6 +6,8 @@ import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import javax.security.auth.x500.X500Principal;
+
+import java.security.spec.InvalidKeySpecException;
 import java.security.spec.KeySpec;
 import java.io.*;
 import java.net.Socket;
@@ -139,9 +141,7 @@ public class MySNS {
             try (DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
                  DataInputStream dis = new DataInputStream(socket.getInputStream())) {
                 
-               
-
-               
+                    dos.writeUTF(command); // Send the command
     
                 // Process files based on the command
                 int numberOfFiles = 0;
@@ -156,10 +156,24 @@ public class MySNS {
                     if (!authenticated) {
                         System.err.println("Authentication failed.");
                         return;
-                    }
-                    System.out.println("Sending command: " + command);
-                    dos.writeUTF(command); // Send the command
+                    }  
                     numberOfFiles = args.length - 9;
+                    //See what files don't actually exist in the client so we don't send those!
+
+                    for (int i=0 ;i < numberOfFiles; i++){
+                        Path file = Paths.get(args[i+9]);
+                        if (!Files.exists(file)) {
+                            System.err.println("File not found in the client: " + file);
+                            nOfFilesMissing++;
+                        }
+                    }
+                    numberOfFiles = numberOfFiles - nOfFilesMissing;
+
+                    if(numberOfFiles == 0){
+                        System.err.println("No files to send found in the client!");
+                        return;
+                    }
+
                     System.out.println("Sending number of files: " + numberOfFiles);
                     dos.writeInt(numberOfFiles); // Send the number of files to the server
                     dos.writeUTF(patientUsername);
@@ -174,8 +188,7 @@ public class MySNS {
                         System.err.println("Authentication failed.");
                         return;
                     }
-                    System.out.println("Sending command: " + command);
-                    dos.writeUTF(command); // Send the command
+                 
                         numberOfFiles = args.length - 7;
                         System.out.println("Receiving number of files: " + numberOfFiles);
                         dos.writeInt(numberOfFiles); // Send the number of files to the server
@@ -184,8 +197,6 @@ public class MySNS {
                         System.out.println("Operation complete. Number of files received: " + nOfFilesReceived + ".");
                         break;
                     case "-au":
-                        System.out.println("Sending command: " + command);
-                        dos.writeUTF(command); // Send the command
                         System.out.println("Creating user: " + username);
                         createUser(dos, dis, username, password, certificateFile,userManager);
                         return;
@@ -272,8 +283,7 @@ public class MySNS {
         Path file = Paths.get(args[i]);
 
         if (!Files.exists(file)) {
-            System.err.println("File not found in the client: " + file);
-            nOfFilesMissing++;
+            System.err.println("Skipping file not found in the client: " + file);
             continue;
         }
 
@@ -345,33 +355,59 @@ public class MySNS {
             
     }
 
-    private static void createUser(DataOutputStream dos,DataInputStream dis,  String username, String password,
-            String certificateFile, UserManager userManager) {
-        try 
-            {   
-            dos.writeUTF(username);
-            dos.writeUTF(password);
+    private static void createUser(DataOutputStream dos, DataInputStream dis, String username, String password,
+    String certificateFile, UserManager userManager) {
+try {
+// Generate a random salt for password hashing
+SecureRandom random = new SecureRandom();
+byte[] salt = new byte[16];
+random.nextBytes(salt);
 
-            Path certificatePath = Paths.get(certificateFile);
-            if (!Files.exists(certificatePath)) {
-                System.err.println("Certificate file not found: " + certificateFile);
-                return;
-            }
-            System.out.println("Certificate file found: " + certificateFile);
+// Hash the password with the salt using PBKDF2
+KeySpec spec = new PBEKeySpec(password.toCharArray(), salt, 10000, 256);
+SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+byte[] hashedPassword = factory.generateSecret(spec).getEncoded();
 
-            byte[] certificateBytes = Files.readAllBytes(certificatePath);
-            System.out.println("Sending certificate length: " + certificateBytes.length+ "and certificate bytes");
-            dos.writeInt(certificateBytes.length);
-            dos.write(certificateBytes);
-            dos.flush();
+// Send the username, salt, and hashed password to the server
+dos.writeUTF(username);
+dos.writeInt(salt.length);
+dos.write(salt);
+dos.writeInt(hashedPassword.length);
+dos.write(hashedPassword);
+dos.flush();
 
-            String response = dis.readUTF();
-            System.out.println(response);
-
-        } catch (IOException e) {
-            System.err.println("Error creating user: " + e.getMessage());
-        }
+// Wait for the server's response
+String response = dis.readUTF();
+if (response.equals("OK")) {
+    // Server approved the user creation, proceed with sending the certificate
+    Path certificatePath = Paths.get(certificateFile);
+    if (!Files.exists(certificatePath)) {
+        System.err.println("Certificate file not found: " + certificateFile);
+        return;
     }
+    System.out.println("Certificate file found: " + certificateFile);
+
+    byte[] certificateBytes = Files.readAllBytes(certificatePath);
+    System.out.println("Sending certificate length: " + certificateBytes.length + " and certificate bytes");
+    dos.writeInt(certificateBytes.length);
+    dos.write(certificateBytes);
+    dos.flush();
+
+    response = dis.readUTF();
+    System.out.println(response);
+} else {
+    System.out.println("User creation failed: " + response);
+}
+} catch (IOException e) {
+    System.err.println("Error creating user: " + e.getMessage());
+} catch (NoSuchAlgorithmException e) {
+    // TODO Auto-generated catch block
+    e.printStackTrace();
+} catch (InvalidKeySpecException e) {
+    // TODO Auto-generated catch block
+    e.printStackTrace();
+}
+}
 
     private static int processGCommand(DataInputStream dis, DataOutputStream dos, String patientUsername,
             String[] filenames) throws IOException {

@@ -119,14 +119,20 @@ public class MySNSServer {
         DataOutputStream dos = new DataOutputStream(clientSocket.getOutputStream());
 
         try {
-            boolean authenticated = handleAuthentication(dis, dos, userManager);
-            if (!authenticated) {
-                System.out.println("Authentication failed. Closing connection.");
-                return;
-            }
-            System.out.println("AUTHENTICATED... WAITING FOR COMMAND...");
+           
+            
             String command = dis.readUTF();
             System.out.println("Received command: " + command);
+
+            boolean authenticated = false;
+            if(!command.equals("-au")){
+                authenticated= handleAuthentication(dis, dos, userManager);
+                if (!authenticated) {
+                    System.out.println("Authentication failed. Closing connection.");
+                    return;
+                }
+            }
+           
             switch (command) {
                 case "-sc":
                     // Read additional parameters required for -sc command
@@ -142,7 +148,7 @@ public class MySNSServer {
                     handleGCommand(dis, dos);
                     break;
                 case "-au":
-                    handleAuCommand(dis, dos);
+                    handleAuCommand(dis, dos,userManager);
                     break;
                 default:
                     System.err.println("Unknown command: " + command);
@@ -162,13 +168,29 @@ public class MySNSServer {
         }
     }
 
-    private static void handleAuCommand(DataInputStream dis, DataOutputStream dos) throws IOException {
+    private static void handleAuCommand(DataInputStream dis, DataOutputStream dos, UserManager userManager) throws IOException {
         String username = dis.readUTF();
-        String password = dis.readUTF();
+        int saltLength = dis.readInt();
+        byte[] salt = new byte[saltLength];
+        dis.readFully(salt);
+        int hashedPasswordLength = dis.readInt();
+        byte[] hashedPassword = new byte[hashedPasswordLength];
+        dis.readFully(hashedPassword);
     
         try {
+            System.out.println("Creating user: " + username);
+            if (userManager.userExists(username)) {
+                dos.writeUTF("Error: User already exists.");
+                return;
+            }
+            System.out.println("USER DOESN'T EXIST! Creating user: " + username);
+
+    
+            dos.writeUTF("OK");
+            dos.flush();
+    
             // Read the certificate file
-            System.out.println("Reading certificate lenght file for user " + username);
+            System.out.println("Reading certificate length file for user " + username);
             int certificateLength = dis.readInt();
             byte[] certificateBytes = new byte[certificateLength];
             System.out.println("Reading certificate file for user " + username);
@@ -178,12 +200,19 @@ public class MySNSServer {
             Path certificateDir = Paths.get(CERTIFICATES_DIR);
             Files.createDirectories(certificateDir);
             Path certificateFile = certificateDir.resolve(username + ".cer");
+            //If the file already exists, delete it
+            if (Files.exists(certificateFile)) {
+                Files.delete(certificateFile);
+            }
+
             Files.write(certificateFile, certificateBytes, StandardOpenOption.CREATE_NEW);
     
-            userManager.createUser(username, password, certificateFile);
+            userManager.createUser(username, salt, hashedPassword, certificateFile);
+    
             // Create a directory for the user
             Path userDir = Paths.get(username);
             Files.createDirectories(userDir);
+    
             dos.writeUTF("User created successfully.");
         } catch (EOFException e) {
             System.err.println("Error reading certificate file: " + e.getMessage());
