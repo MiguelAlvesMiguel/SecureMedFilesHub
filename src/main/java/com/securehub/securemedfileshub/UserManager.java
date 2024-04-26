@@ -23,7 +23,7 @@ import java.nio.file.StandardCopyOption;
 
 public class UserManager {
     private static final String USERS_FILE = "users.txt";
-    private static final String MAC_FILE = "users.mac";
+    private static final String MAC_FILE = "admin.mac";
     private Map<String, User> users;
 
     public UserManager() {
@@ -41,6 +41,7 @@ public class UserManager {
                 try (Scanner scanner = new Scanner(System.in)) {
                     System.out.print("Do you want to calculate the MAC for the users file? (yes/no): ");
                     String answer = scanner.nextLine().trim().toLowerCase();
+                  
                     while (!answer.equals("yes") && !answer.equals("no") && !answer.equals("y") && !answer.equals("n")) {
                         System.out.print("Invalid answer. Do you want to calculate the MAC for the users file? (yes/no): ");
                         answer = scanner.nextLine().trim().toLowerCase();
@@ -85,6 +86,7 @@ public class UserManager {
 
     public boolean authenticateUser(String username, String password) {
         User user = users.get(username);
+        System.out.println("Auth: User: " + user);
         if (user != null) {
             String hashedPassword = hashPassword(password, user.getSalt());
             return hashedPassword.equals(user.getHashedPassword());
@@ -220,5 +222,9 @@ public class UserManager {
         } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
             throw new RuntimeException("Error hashing password: " + e.getMessage());
         }
+    }
+
+    public User getUser(String username) {
+        return users.get(username);
     }
 }

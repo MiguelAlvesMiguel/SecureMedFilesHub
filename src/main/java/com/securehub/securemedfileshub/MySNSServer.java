@@ -13,21 +13,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.security.KeyStore;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.KeySpec;
-import java.util.Base64;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Scanner;
 
-import javax.crypto.SecretKeyFactory;
-import javax.crypto.spec.PBEKeySpec;
+import java.util.Base64;
+
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLServerSocketFactory;
+import java.util.Arrays;
 
 
 public class MySNSServer {
@@ -35,7 +26,6 @@ public class MySNSServer {
     private static final String CERTIFICATES_DIR = "certificates";
     private static UserManager userManager;
 
-    private static Map<String, String> users = new HashMap<>();
 
     public static void main(String[] args) throws IOException {
         if (args.length < 1 || args.length > 3) {
@@ -82,50 +72,61 @@ public class MySNSServer {
         }
     }
 
-    private static String generateSalt() {
-        // Generate a random salt
-        SecureRandom random = new SecureRandom();
-        byte[] saltBytes = new byte[16];
-        random.nextBytes(saltBytes);
-        return Base64.getEncoder().encodeToString(saltBytes);
-    }
-    
-    private static String hashPassword(String password, String salt) {
-        // Hash the password with the salt using PBKDF2
+    private static boolean handleAuthentication(DataInputStream dis, DataOutputStream dos, UserManager userManager) {
         try {
-            KeySpec spec = new PBEKeySpec(password.toCharArray(), salt.getBytes(), 10000, 256);
-            SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
-            byte[] hashedBytes = factory.generateSecret(spec).getEncoded();
-            return Base64.getEncoder().encodeToString(hashedBytes);
-        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
-            throw new RuntimeException("Error hashing password: " + e.getMessage());
-        }
-    }
+            String username = dis.readUTF();
+            System.out.println("Received username: " + username);
+            User user = userManager.getUser(username);
 
-    private static void createUsersFile(Path usersFilePath, String adminPassword) {
-        try {
-            // Generate salt for the admin password
-            String salt = generateSalt();
     
-            // Hash the admin password with the salt
-            String hashedPassword = hashPassword(adminPassword, salt);
+            if (user != null) {
+                System.out.println("User found: " + user.getUsername() + ". Sending salt to client.");
+                // User found, send the salt to the client
+                String salt = user.getSalt();
+                dos.writeInt(salt.length());
+                dos.write(salt.getBytes());
+                dos.flush();
     
-            // Write the admin user to the "users" file
-            String adminUser = "admin;" + salt + ";" + hashedPassword;
-            Files.write(usersFilePath, adminUser.getBytes(), StandardOpenOption.CREATE_NEW);
-            System.out.println("Created 'users' file with 'admin' user.");
+                // Receive the hashed password from the client
+                int hashedPasswordLength = dis.readInt();
+                byte[] receivedHashedPassword = new byte[hashedPasswordLength];
+                dis.readFully(receivedHashedPassword);
+    
+                // Compare the received hashed password with the stored hashed password
+                String storedHashedPassword = user.getHashedPassword();
+                if (Arrays.equals(receivedHashedPassword, Base64.getDecoder().decode(storedHashedPassword))) {
+                    dos.writeUTF("SUCCESS");
+                    return true;
+                } else {
+                    dos.writeUTF("FAILURE! WRONG PASSWORD!");
+                    return false;
+                }
+            } else {
+                // User not found
+                dos.writeInt(-1);
+            }
+            dos.flush();
+            return true;
         } catch (IOException e) {
-            System.err.println("Error creating 'users' file: " + e.getMessage());
-            System.exit(1);
+            System.err.println("Error during authentication: " + e.getMessage());
+            return false;
         }
     }
 
+   
     private static void processClient(Socket clientSocket) throws IOException {
         DataInputStream dis = new DataInputStream(clientSocket.getInputStream());
         DataOutputStream dos = new DataOutputStream(clientSocket.getOutputStream());
 
         try {
+            boolean authenticated = handleAuthentication(dis, dos, userManager);
+            if (!authenticated) {
+                System.out.println("Authentication failed. Closing connection.");
+                return;
+            }
+            System.out.println("AUTHENTICATED... WAITING FOR COMMAND...");
             String command = dis.readUTF();
+            System.out.println("Received command: " + command);
             switch (command) {
                 case "-sc":
                     // Read additional parameters required for -sc command
@@ -167,8 +168,10 @@ public class MySNSServer {
     
         try {
             // Read the certificate file
+            System.out.println("Reading certificate lenght file for user " + username);
             int certificateLength = dis.readInt();
             byte[] certificateBytes = new byte[certificateLength];
+            System.out.println("Reading certificate file for user " + username);
             dis.readFully(certificateBytes);
     
             // Save the certificate file
