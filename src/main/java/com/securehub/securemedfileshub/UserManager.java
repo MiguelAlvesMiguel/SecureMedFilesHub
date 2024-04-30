@@ -37,6 +37,7 @@ public class UserManager {
             if (!Files.exists(usersFilePath)) {
                 createAdminUser();
             }
+            loadUsers();
 
             if (!macFileExists()) {
                 System.out.println("MAC file doesn't exist!");
@@ -65,7 +66,7 @@ public class UserManager {
                 return false;
             }
 
-            loadUsers();
+           
 
           
             return true;
